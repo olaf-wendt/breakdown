@@ -1,0 +1,104 @@
+{
+  "name": "breakdown",
+  "productName": "Breakdown",
+  "version": "0.1.2",
+  "description": "A productivity app for script analysis",
+  "author": "olaf wendt <olaf@olafwendt.com>",
+  "private": true,
+  "homepage": "./",
+  "main": "public/electron.js",
+  "dependencies": {
+    "@testing-library/jest-dom": "^6.1.6",
+    "@testing-library/react": "^14.1.2",
+    "@testing-library/user-event": "^14.5.2",
+    "@tiptap/core": "^2.9.1",
+    "@tiptap/extension-bubble-menu": "^2.9.1",
+    "@tiptap/extension-color": "^2.9.1",
+    "@tiptap/extension-document": "^2.9.1",
+    "@tiptap/extension-highlight": "^2.9.1",
+    "@tiptap/extension-paragraph": "^2.9.1",
+    "@tiptap/extension-text": "^2.9.1",
+    "@tiptap/extension-text-style": "^2.9.1",
+    "@tiptap/pm": "^2.9.1",
+    "@tiptap/react": "^2.9.1",
+    "@tiptap/starter-kit": "^2.9.1",
+    "better-queue": "^3.8.12",
+    "csv-writer": "^1.6.0",
+    "electron-log": "^5.2.2",
+    "exceljs": "^4.4.0",
+    "fs-extra": "^11.2.0",
+    "jsdom": "^22.1.0",
+    "node-poppler": "^7.2.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-scripts": "5.0.1",
+    "react-toastify": "^10.0.6",
+    "sharp": "^0.32.6",
+    "tesseract.js": "^4.1.1",
+    "uuid": "^9.0.1",
+    "web-vitals": "^3.5.1"
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "@electron/notarize": "^2.2.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "dotenv": "^16.4.1",
+    "dotenv-cli": "^7.3.0",
+    "electron": "24.8.8",
+    "electron-builder": "^24.9.1",
+    "fs-extra": "^11.2.0",
+    "js-yaml": "^4.1.0",
+    "wait-on": "^7.2.0"
+  },
+  "scripts": {
+    "start": "cross-env BROWSER=none PORT=3001 react-scripts start",
+    "prebuild": "node scripts/prebuild.js",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron-dev": "concurrently -k \"cross-env BROWSER=none npm start\" \"wait-on http://127.0.0.1:3001 && electron .\"",
+    "electron-debug": "concurrently -k \"cross-env BROWSER=none npm start\" \"wait-on http://127.0.0.1:3001 && electron . --trace-warnings\"",
+    "electron": "electron .",
+    "rebuild-sharp": "npm rebuild sharp --platform=darwin --arch=x64 && npm rebuild sharp --platform=darwin --arch=arm64",
+    "package-mac": "npm run rebuild-sharp && npm run build && dotenv -e .env -- electron-builder --mac --universal --config electron-builder.yml",
+    "package-mac-x64": "npm rebuild sharp --platform=darwin --arch=x64 && npm run build && dotenv -e .env -- electron-builder --mac --x64 --config electron-builder.yml",
+    "package-mac-arm64": "npm rebuild sharp --platform=darwin --arch=arm64 && npm run build && dotenv -e .env -- electron-builder --mac --arm64 --config electron-builder.yml",
+    "package-mac-unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && electron-builder --mac --config electron-builder.yml",
+    "package-win": "npm run build && electron-builder --win --config electron-builder.yml",
+    "package-win-debug": "cross-env DEBUG=* ELECTRON_ENABLE_LOGGING=true npm run build && electron-builder --win --config electron-builder.yml --debug",
+    "postinstall": "node scripts/check-poppler.js && electron-builder install-app-deps",
+    "verify-signing": "(dotenv -e .env -- node scripts/verify-signing.js || node scripts/verify-signing.js)"
+  },
+  "build": {
+    "extends": null,
+    "files": [
+      "build/**/*",
+      "node_modules/**/*",
+      "public/electron.js",
+      "public/ipc.js",
+      "public/menu.js",
+      "src/main/**/*",
+      "src/fonts/**/*",
+      "package.json"
+    ]
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

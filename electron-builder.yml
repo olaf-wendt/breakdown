@@ -1,0 +1,84 @@
+appId: "com.olafwendt.breakdown"
+productName: "Breakdown"
+afterSign: "./scripts/notarize.js"
+
+directories:
+  buildResources: "assets"
+  output: "dist"
+
+asarUnpack:
+  - "node_modules/sharp"
+  - "node_modules/sharp/**/*"
+  - "node_modules/sharp/vendor/8.14.5/darwin-x64"
+  - "node_modules/sharp/vendor/8.14.5/darwin-arm64"
+
+files:
+  - "build/**/*"             # Contains bundled React app (components, hooks, etc.)
+  - "node_modules/**/*"      # Dependencies
+  - "public/electron.js"     # Main electron process
+  - "public/ipc.js"          # IPC handlers
+  - "public/menu.js"         # Menu configuration
+  - "src/main/**/*"          # Utility functions used by main process
+  - "src/config.js"          # Renderer config
+  - "src/config.main.js"     # Main process config
+  - "src/config.shared.js"   # Shared configuration
+  - "package.json" 
+  - "!node_modules/pdf-poppler/lib/${os}/*"          # Project configuration
+
+extraResources:
+  - from: "lang-data"         # Local tesseract language files
+    to: "lang-data"
+  - from: "resources/${os}/bin"
+    to: "bin"
+    filter: ["**/*"]
+  - from: "resources/${os}/lib"
+    to: "lib"
+    filter: ["**/*"]
+
+mac:
+  category: "public.app-category.productivity"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: "assets/entitlements.mac.plist"
+  entitlementsInherit: "assets/entitlements.mac.inherit.plist"
+  notarize: false
+  target:
+    - target: "dmg"
+      arch:
+        - "arm64"
+        - "x64"
+  timestamp: null
+  strictVerify: false
+  signIgnore: [
+    ".*\\.pak$",
+    ".*/locales/.*",
+    ".*/locale\\.pak$"
+  ]
+
+win:
+  target:
+    - target: "nsis"
+      arch:
+        - "x64"
+    - target: "portable"
+      arch:
+        - "x64"
+  extraResources:
+    - from: "C:/msys64/mingw64/bin"
+      filter: 
+        - "poppler-*.dll"
+        - "libpoppler.dll"
+        - "libpoppler-cpp.dll"
+        - "pdftoppm.exe"
+      to: "bin"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+protocols:
+  - name: "breakdown-protocol"
+    schemes: 
+      - "breakdown"

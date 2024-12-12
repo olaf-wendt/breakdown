@@ -1,0 +1,19 @@
+# Ignore .DS_Store files anywhere in the project
+**/.DS_Store
+
+# Build and distribution directories
+build
+dist
+
+# Node.js dependencies
+node_modules
+
+# environment file
+.env
+
+# Ensure .gitattributes is not ignored
+!.gitattributes
+
+resources/*/bin/*
+resources/*/lib/*
+
