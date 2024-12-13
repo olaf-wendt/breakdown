@@ -8,6 +8,7 @@ const { writeScriptCsv, writeScenesCsv, writeTokens, writeHtml, writeScriptRaw }
 const { EDITOR_CONFIG } = require('../src/config.main.js');
 
 function setupIPC(mainWindow) {
+    let currentFileName = null;
     // File operations
     const handleFileOpen = async (useOCR = false) => {
         log.debug('IPC: Handling menu-open-file');
@@ -22,8 +23,10 @@ function setupIPC(mainWindow) {
             if (!filePaths?.length) return;
 
             const filePath = filePaths[0];
+            const fileName = path.basename(filePath);
             const fileExt = path.extname(filePath).toLowerCase();
             log.info(`Opening file: ${filePath} with extension ${fileExt}`);
+            currentFileName = fileName;
     
             let content;
             if (fileExt === '.pdf' && useOCR) {
@@ -57,7 +60,8 @@ function setupIPC(mainWindow) {
                     log.debug("Tokens array length:", tokens.length);
                 }
                 const html = await tokensToHtml(tokens, entities);
-    
+
+                mainWindow.webContents.send('set-file-name', fileName);
                 mainWindow.webContents.send('set-editor-content', html);
             } catch (error) {
                 log.error('Error in parsing/conversion:', error);
@@ -91,6 +95,7 @@ function setupIPC(mainWindow) {
             });
 
             const { filePath, canceled } = await dialog.showSaveDialog({
+                defaultPath: path.join(app.getPath('documents'), currentFileName || 'script'),
                 filters: [
                     { name: 'Text Files', extensions: ['txt'] },
                     { name: 'CSV Files', extensions: ['csv'] },
@@ -102,7 +107,9 @@ function setupIPC(mainWindow) {
             if (canceled || !filePath) return;
     
             const fileExt = path.extname(filePath).toLowerCase();
+            const fileName = path.basename(filePath);
             const [tokens, entities] = htmlToTokens(content);
+            currentFileName = fileName;
             
             switch (fileExt) {
                 case '.txt':
@@ -118,6 +125,7 @@ function setupIPC(mainWindow) {
                 default:
                     throw new Error(`Unsupported file extension: ${fileExt}`);
             }
+            mainWindow.webContents.send('set-file-name', fileName);
             mainWindow.webContents.send('show-success', 'File saved successfully');
         } catch (error) {
             log.error('Error saving file:', error);

@@ -8,6 +8,7 @@ export const EDITOR_CONFIG = {
         ? parseInt(process.env.OCR_MAX_CONCURRENT) 
         : undefined,
     defaultLanguage: 'eng',
-    pageWidthInInches: 8
+    pageWidthInInches: 8, 
+    dpi: 200
   }
 };

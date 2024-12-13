@@ -14,6 +14,7 @@ const { Poppler } = require('node-poppler');
 const isPackaged = app.isPackaged;
 const defaultLanguage = EDITOR_CONFIG.ocr.defaultLanguage;
 const pageWidthInInches = EDITOR_CONFIG.ocr.pageWidthInInches;
+const dpiDefault = EDITOR_CONFIG.ocr.dpi;
 
 const cpuCount = os.cpus().length;
 const concurrentOCRtasks = EDITOR_CONFIG.ocr.maxConcurrent || 
@@ -46,7 +47,7 @@ if (isPackaged) {
     popplerPath = binPath;
 }
 
-const poppler = isPackaged
+const poppler = (isPackaged && process.platform !== 'win32')
     ? new Poppler(popplerPath)
     : new Poppler();
 
@@ -149,7 +150,7 @@ async function getPdfPageCount(pdfPath) {
     }
 }
 
-async function* pdfToImagesGenerator(pdfPath, outputDir, dpi = 300) {
+async function* pdfToImagesGenerator(pdfPath, outputDir, dpi = 200) {
     log.debug('temp output dir', outputDir);
     //const info = await pdfPoppler.info(pdfPath, { binary: popplerPath });
     const pageCount = await getPdfPageCount(pdfPath);
@@ -166,7 +167,6 @@ async function* pdfToImagesGenerator(pdfPath, outputDir, dpi = 300) {
             pngFile: true,
             singleFile: true,
             resolutionXYAxis: dpi
-            //scale: dpi * pageWidthInInches,
         };
         try {
             log.debug(`Converting page ${pageNum}/${pageCount} to ${imagePath}`);

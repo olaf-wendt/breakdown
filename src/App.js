@@ -195,8 +195,8 @@ function BreakdownEditor({ editor, updateVfxShotNumber}) {
 
 function App() {
   const { ipcRenderer } = window.require('electron');
-
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [currentFileName, setcurrentFileName] = useState(null);
 
   const editor = useEditor({
     extensions,
@@ -208,6 +208,11 @@ function App() {
   });
 
   const { initializeScenes, updateVfxShotNumber } = useEditorOperations(editor);
+
+  // Update document title when filename changes
+  useEffect(() => {
+    document.title = currentFileName ? `Breakdown - ${currentFileName}` : 'Breakdown';
+  }, [currentFileName]);
 
   useEffect(() => {
     if (!editor) return;
@@ -237,7 +242,7 @@ function App() {
       },
       'menu-save': () => {
         log.info('Renderer: Received menu-save');
-        ipcRenderer.invoke('handle-file-save');
+        ipcRenderer.invoke('handle-file-save', currentFileName);
       },
       'get-editor-content': () => {
         const content = editor.getHTML();
@@ -247,19 +252,19 @@ function App() {
         editor.commands.setContent(content);
         safeInitializeScenes();
       },
+      'set-file-name': (_, fileName) => {
+        setcurrentFileName(fileName);
+      },
       'update-shot-number': updateVfxShotNumber,
-
       'update-toast': (_, toastId, message) => {
           toast.update(toastId, {
               render: message,
               type: 'info'
           });
       },
-      
       'dismiss-toast': (_, toastId) => {
           toast.dismiss(toastId);
       },
-
       'show-info': (_, message, options = {}) => {
           toast.info(message, {
               position: "bottom-right",
@@ -349,7 +354,7 @@ function App() {
       clearInterval(saveTimer);
       if (editor) editor.destroy();
     };
-  }, [editor, updateVfxShotNumber, initializeScenes, ipcRenderer]);
+  }, [editor, updateVfxShotNumber, initializeScenes, ipcRenderer, currentFileName]);
 
   if (!editor) return null;
 
