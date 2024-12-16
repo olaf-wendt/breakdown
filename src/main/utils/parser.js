@@ -120,13 +120,14 @@ function parseScriptSync(script) {
         lineClean = lineClean.replace(regex['entity-annotation'], '');
         //log.debug('line clean:', lineClean);
 
+        const isBlank = regex['blank'].test(lineClean);
         const indent = line.length - line.trimStart().length;
-        const indentRight = (indent - currentIndent) > 3;
-        const indentJump = Math.abs(currentIndent - indent) > 3;
+        const indentRight = (indent - currentIndent) > 3; // currentLine jumps to the right
+        const indentJump = isBlank ? false : Math.abs(currentIndent - indent) > 3;
         currentIndent = indent;
 
         if (currentBlock === 'dialogue') {
-            const dialogueBreaks = ['blank', 'page-break', 'page-number', 'scene-heading', 'transition', 'flashback', 'action'];
+            const dialogueBreaks = ['page-break', 'page-number', 'scene-heading', 'transition', 'flashback', 'action'];
             if (dialogueBreaks.some(e => regex[e].test(lineClean)) || (textBlock.length && indentJump)) {
                 if (textBlock.length) {
                     tokens.push({ type: 'dialogue', text: textBlock.join('\n') + '\n', vfx: currentVfx });

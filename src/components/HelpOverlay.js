@@ -12,7 +12,7 @@ export function HelpOverlay({ isOpen, onClose }) {
         <button className="help-close" onClick={onClose}>×</button>
         <h3 className="help-title">BREAKDOWN EDITOR</h3>
         <section className="help-section">
-            <p>by olaf wendt. Send bug reports to <a href="mailto:olaf@olafwendt.com" className="email-link">olaf@olafwendt.com</a></p>
+            <p>copyright 2024 olaf wendt. Send bug reports to <a href="mailto:olaf@olafwendt.com" className="email-link">olaf@olafwendt.com</a></p>
         </section>
         <section className="help-section">
           <p>Breakdown is a specialized script editor for marking up screenplays, adding notes and taging vfx shots.</p>
@@ -47,33 +47,67 @@ export function HelpOverlay({ isOpen, onClose }) {
             </p>
         </section>
         <section className="help-section">
-            <p>Click in the right margin area next to any script line to add a note.</p>
-            <p>Click on the caret to the left of scene headings to collapse a scen to a single line.</p>
-            <p>Shift-Click on the caret to collapse/expand all scenes. </p>
+            <p>Once you've loaded your script, fix any formatting errors from the OCR process.</p>
+            <p>Then tag lines as vfx shots, tag characters, props etc and add notes:</p>
             <br></br>
         </section>
         <section className="help-content-script">
-            <p className="scene-heading" data-scene-number="1">
-                <span className="scene-heading-caret"></span>
-                <span className="scene-heading-content">EXT. HADES - DUSK</span>
-            </p>
-            <p data-scene-number="2"><br className="ProseMirror-trailingBreak" /></p>
-            <p className="action vfx mid" data-scene-number="1">
-                We are MOVING TOWARD the  <mark className="char">TYRELL CORPORATION</mark> across a <span data-type="note" className="note-bubble">Note: miniature</span>
-            </p>
-            <p className="action vfx mid" data-scene-number="1">
-                vast plain of industrialization, menacing shapes on the
-            </p>
-            <p className="action vfx mid" data-scene-number="1">
-                horizon, stacks belching flames five hundred feet into
-            </p>
-            <p className="action vfx mid" data-scene-number="1">
-                the sky the color of cigar ash. 
-            </p>
+            <div className="help-content-script-container">
+                <div className="tiptap ProseMirror" translate="no" contentEditable="false" role="textbox">
+                    <p className="scene-heading" data-scene-number="1" data-collapsed="false">
+                        <span className="scene-heading-caret"></span>
+                        <span className="scene-heading-content">INT. DEEP MIND FACILITY - PERPETUAL TWILIGHT</span>
+                    </p>
+                    <p data-scene-number="1"><br className="ProseMirror-trailingBreak" /></p>
+                    <p className="action" data-scene-number="1">
+                        Streams of psychedelic tokens cascade down <mark className="prop">transparent screens</mark>.<span data-type="note" className="note-bubble">Note: in-camera projections</span>
+                    </p>
+                    <p data-scene-number="1"><br className="ProseMirror-trailingBreak" /></p>
+                    <p className="action vfx easy" data-scene-number="1">
+                        <mark className="char">DR. ZHANG</mark> stands motionless.
+                    </p>
+                    <p className="action vfx easy" data-scene-number="1">
+                        His neural implants glowing a soft crimson.<span data-type="note" className="note-bubble">Note: augment practical implants</span>
+                    </p>
+                    <p data-scene-number="1"><br className="ProseMirror-trailingBreak" /></p>
+                    <p className="character" data-scene-number="1">
+                        <mark className="char">DR. ZHANG</mark>
+                    </p>
+                    <p className="dialogue" data-scene-number="1">
+                    The AI isn't malfunctioning.
+                    </p>
+                    <p className="dialogue" data-scene-number="1">
+                    It's dreaming.
+                    </p>
+                </div>
+                <div className="help-annotation top" style={{ top: '-60px', left: '20px' }}>
+                    <span>click to collapse</span>
+                    <div className="annotation-arrow bottom" style={{ height: '15px' }}></div>
+                </div>
+                <div className="help-annotation top" style={{ top: '-60px', left: '450px' }}>
+                    <span>tagged prop elements</span>
+                    <div className="annotation-arrow bottom" style={{ height: '40px' }}></div>
+                </div>
+                <div className="help-annotation right" style={{ top: '80px', left: '560px' }}>
+                    <span>tagged as easy vfx shot</span>
+                    <div className="annotation-arrow left"></div>
+                </div>
+                <div className="help-annotation top" style={{ top: '-70px', left: '800px' }}>
+                    <span>add notes by clicking in right margin</span>
+                    <div className="annotation-arrow bottom" style={{ height: '60px' }}></div>
+                </div>
+                <div className="help-annotation right" style={{ top: '110px', left: '360px' }}>
+                    <span>tagged character</span>
+                    <div className="annotation-arrow left" style={{ width: '60px' }}></div>
+                </div>
+            </div>
         </section>
         <section className="help-section">
-            <br></br>
-            <p>Select text in the editor to bring up the bubble menu to change formatting, tag vfx shots, characters, props etc:</p>
+            <p>Shift click on carets to collapse / expand all scenes.</p>
+            <p>Delete note text to remove note bubbles.</p>
+        </section>
+        <section className="help-section">
+            <p>Select text to bring up this bubble menu to change formatting, tag vfx shots, characters, props etc:</p>
             <div className="help-bubble-preview">
                 <div className="bubble-menu-container">
                     <div className="bubble-menu">

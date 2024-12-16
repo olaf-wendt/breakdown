@@ -87,14 +87,8 @@
 .script-container {
   position: relative;
   max-width: 48em;
-  margin: 0 auto;
-  padding: 20px 500px 20px 60px; /* Add left padding for scene numbers */
-}
-
-.script-container {
-  position: relative;
-  width: 48em;
-  left: 0;
+  margin: 0 0;
+  padding: 20px 100px 20px 20px; /* Add left padding for scene numbers */
 }
 
 body { 
@@ -104,7 +98,8 @@ body {
   line-height: 1; 
   margin-left: 0em; 
   margin-right: 0em; 
-  padding: 0; }
+  padding: 0; 
+}
 h2 { font-size: 100%; font-weight: normal; margin-top: 2em; margin-bottom: 0; position: relative; } 
 h3 { font-size: 100%; font-weight: normal; margin-top: 1em;  margin-bottom: 0; }
 h4 { font-size: 100%; font-weight: normal; margin-left: 4em; margin-top: 1em; margin-bottom: 0; } 
@@ -157,7 +152,7 @@ p.scene-heading {
 /* Style for the caret span */
 .scene-heading-caret {
   position: absolute;
-  left: -3em; 
+  left: -1em; 
   width: 1em;
   height: 1em;
   display: flex;
@@ -426,10 +421,30 @@ mark.scene { background-color: var(--color-scene); }
   letter-spacing: 0 !important; 
   font-size: 10pt; 
   line-height: 1; 
-  margin-left: 0em; 
+  margin-left: 2em; 
   margin-right: 0em; 
-  padding: 0; 
+  width: 48em;
+  padding: 50px 40px 10px 0px; 
 }
+
+.help-content-script-container {
+  position: relative;
+  max-width: 42em;
+  margin: 0 0;
+  padding: 0px 100px 0px 0px;
+}
+
+.help-content-script .scene-heading-caret {
+  position: absolute;
+  left: -3em;
+  width: 1em;
+}
+
+.help-content-script p.scene-heading::before {
+  left: -4em;
+  width: 3em;
+}
+
 
 .help-close {
   position: absolute;
@@ -504,8 +519,9 @@ kbd {
 .help-bubble-preview {
   position: relative;
   padding: 4rem;
+  margin-left: 10rem;
   display: flex;
-  justify-content: center;
+  justify-content: left;
 }
 
 .bubble-menu-container {

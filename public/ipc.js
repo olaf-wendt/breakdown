@@ -63,6 +63,7 @@ function setupIPC(mainWindow) {
 
                 mainWindow.webContents.send('set-file-name', fileName);
                 mainWindow.webContents.send('set-editor-content', html);
+                await handleSaveContent(null, { content: html }); // autosave
             } catch (error) {
                 log.error('Error in parsing/conversion:', error);
                 mainWindow.webContents.send('show-error', 'Failed to process file');
