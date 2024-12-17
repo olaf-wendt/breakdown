@@ -77,7 +77,7 @@ function parseScriptSync(script) {
     let pageNum = 1, sceneNum = 0;
     let tokens = [];
     let entities = {};
-    let currentBlock = null, textBlock = [], currentVfx = null, currentIndent = 0;
+    let currentBlock = null, textBlock = [], currentVfx = null, currentIndent = 0, currentBlank = false;
 
     for (let line of lines) {
         let vfx = null;
@@ -121,30 +121,37 @@ function parseScriptSync(script) {
         //log.debug('line clean:', lineClean);
 
         const isBlank = regex['blank'].test(lineClean);
-        const indent = line.length - line.trimStart().length;
-        const indentRight = (indent - currentIndent) > 3; // currentLine jumps to the right
-        const indentJump = isBlank ? false : Math.abs(currentIndent - indent) > 3;
+        const indent = isBlank && !currentBlank ? currentIndent : line.length - line.trimStart().length;
+        const indentRight = (indent - currentIndent) > 5; // currentLine jumps to the right
+        const indentJump = isBlank && !currentBlank ? false : Math.abs(currentIndent - indent) > 5;
         currentIndent = indent;
+        currentBlank =  isBlank;
+
+        log.debug('line indent ' + indent + ' ' + indentJump + ': ' + lineClean);
 
         if (currentBlock === 'dialogue') {
-            const dialogueBreaks = ['page-break', 'page-number', 'scene-heading', 'transition', 'flashback', 'action'];
-            if (dialogueBreaks.some(e => regex[e].test(lineClean)) || (textBlock.length && indentJump)) {
+            const nextIsBreak = ['page-break', 'page-number', 'scene-heading', 'transition', 'flashback', 'action'].some(e => regex[e].test(lineClean));
+            if (nextIsBreak || (textBlock.length && indentJump)) {
                 if (textBlock.length) {
                     tokens.push({ type: 'dialogue', text: textBlock.join('\n') + '\n', vfx: currentVfx });
                 }
+                log.debug('pushing dialogue', textBlock.join(''));
                 tokens.push({ type: 'dialogue-end' });
                 currentBlock = null;
                 textBlock = [];
                 currentVfx = null;
             } else {
-                textBlock.push(line);
+                if (!isBlank || textBlock.length) {
+                    textBlock.push(line);
+                }
                 continue;
             }
         } else if (currentBlock === 'action') {
             const nextIsCharacter = regex['character'].test(lineClean) && indentRight;
-            const nextIsBreak = ['blank', 'page-break', 'page-number', 'scene-heading', 'transition', 'flashback'].some(e => regex[e].test(line.trim()));
+            const nextIsBreak = ['blank', 'page-break', 'page-number', 'scene-heading', 'transition', 'flashback'].some(e => regex[e].test(lineClean)); // line.trim()
             if (nextIsCharacter || nextIsBreak) {
                 tokens.push({ type: 'action', text: textBlock.join('\n') + '\n', vfx: currentVfx });
+                log.debug('pushing action', textBlock.join(''));
                 currentBlock = null;
                 textBlock = [];
                 currentVfx = null;
@@ -186,6 +193,7 @@ function parseScriptSync(script) {
             currentBlock = 'dialogue';
             textBlock = [];
             currentVfx = vfx;
+            log.debug('character:', lineClean);
         } else {
             const actionMatch = line.match(regex['action']);
             if (actionMatch) {
@@ -257,7 +265,7 @@ function tokensToHtmlSync(tokens, entities = {}) {
             // wrap notes in the correct html span
             const cleanText = tokenText.replace(regex['note'], '<span data-type="note" class="note-bubble">$1</span>');
             const tokenTextWrap = wrapMark(cleanText); 
-            log.debug('wrapped text', tokenTextWrap);
+            //log.debug('wrapped text', tokenTextWrap);
 
             const m = token.vfx ? token.vfx.match(vfxRegex) : null;
             const vfxClasses = m ? ` vfx ${m[2]}` : (token.vfx ? ' vfx' : '');
