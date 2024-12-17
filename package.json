@@ -1,7 +1,7 @@
 {
   "name": "breakdown",
   "productName": "Breakdown",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A productivity app for script analysis",
   "author": "olaf wendt <olaf@olafwendt.com>",
   "private": true,
