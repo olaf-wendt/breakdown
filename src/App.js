@@ -10,10 +10,19 @@ import log from 'electron-log/renderer';
 import 'react-toastify/dist/ReactToastify.css';
 import "./App.css";
 
+/**
+ * BreakdownEditor Component
+ * Provides the main editor interface with bubble menu controls for formatting text
+ * and managing VFX shots. Includes functionality for scene collapsing and note creation.
+ * 
+ * @param {Object} editor - TipTap editor instance
+ * @param {Function} updateVfxShotNumber - Callback to update VFX shot numbering
+ */
 function BreakdownEditor({ editor, updateVfxShotNumber}) {
   const { toggleScene, toggleAllScenes, toggleVfx, isClassActive, toggleParagraphClass, toggleHighlight, toggleNote } = useEditorOperations(editor);
 
-  // Add dynamic styles for VFX levels
+  // Dynamically inject CSS styles for VFX difficulty levels
+  // Creates color-coded backgrounds and hover states for VFX buttons
   useEffect(() => {
     const styleElement = document.createElement('style');
     const vfxStyles = EDITOR_CONFIG.vfx.difficultyLevels
@@ -38,7 +47,12 @@ function BreakdownEditor({ editor, updateVfxShotNumber}) {
     };
   }, []);
 
-  // handle scene collapse / expand
+  /**
+   * Scene Collapse/Expand Handler
+   * Manages collapsible scenes in the editor:
+   * - Single click on caret: toggles individual scene
+   * - Shift + click: toggles all scenes to match target state
+   */
   useEffect(() => { 
     if (!editor?.view) return;
 
@@ -71,9 +85,13 @@ function BreakdownEditor({ editor, updateVfxShotNumber}) {
     };
   }, [editor]);
 
-  // handle note creating in right margin
+  // State and handlers for note creation interface
   const [hoverLine, setHoverLine] = useState(null);
 
+  /**
+   * Tracks mouse position over the note creation area
+   * Updates hover indicator to match the paragraph being hovered
+   */
   const handleNoteAreaMouseMove = useCallback((e) => {
     if (!editor?.state?.doc) return;
 
@@ -192,7 +210,11 @@ function BreakdownEditor({ editor, updateVfxShotNumber}) {
   );
 }
 
-
+/**
+ * Main Application Component
+ * Manages the editor state, file operations, and IPC communication with Electron.
+ * Handles auto-saving, file loading/saving, and user notifications.
+ */
 function App() {
   const { ipcRenderer } = window.require('electron');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -214,11 +236,26 @@ function App() {
     document.title = currentFileName ? `Breakdown - ${currentFileName}` : 'Breakdown';
   }, [currentFileName]);
 
+
+  /**
+   * Main Effect Hook
+   * Sets up IPC communication channels and editor initialization
+   * Manages:
+   * - File operations (open/save)
+   * - Content auto-saving
+   * - Toast notifications
+   * - Scene initialization
+   * - Editor content updates
+   */
   useEffect(() => {
     if (!editor) return;
 
     let isInitializing = false; // Flag to prevent duplicate initializations
 
+    /**
+     * Safely initialize scenes with debouncing
+     * Prevents multiple simultaneous initialization attempts
+     */
     const safeInitializeScenes = () => {
       if (isInitializing) return;
       isInitializing = true;
@@ -331,7 +368,11 @@ function App() {
         });
     }, 30000);
 
-    // Handle significant content changes only
+    /**
+     * Content change handler
+     * Reinitializes scenes only on structural document changes
+     * to prevent unnecessary processing
+     */
     const handleUpdate = ({ transaction }) => {
       // Only reinitialize if there are doc changes that affect structure
       if (transaction.docChanged && (

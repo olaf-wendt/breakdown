@@ -3,8 +3,20 @@ import { EDITOR_CONFIG } from '../config.main.esm.js';
 
 const VFX_TAGS = ['vfx', ...EDITOR_CONFIG.vfx.difficultyLevels.map(level => level.id)];
 
+/**
+ * Custom hook providing editor operations for screenplay formatting and management
+ * Handles scene numbering, collapsing, VFX shot management, and paragraph styling
+ * 
+ * @param {Editor} editor - TipTap editor instance
+ * @returns {Object} Collection of editor operation functions
+ */
 export function useEditorOperations(editor) {
 
+    /**
+     * Initializes scene structure by setting collapse states and scene numbers
+     * Traverses document to ensure all paragraphs within a scene share the same number
+     * Only sets collapse state if not already defined
+     */
     const initializeScenes = useCallback(() => {
       if (!editor?.view) return;
       
@@ -41,7 +53,13 @@ export function useEditorOperations(editor) {
       }).run();
     }, [editor]);
 
-    // toggle visibility of a single scene
+    /**
+     * Toggles visibility of paragraphs within a specific scene
+     * Updates both scene heading and all related paragraphs
+     * 
+     * @param {string} sceneId - Scene number identifier
+     * @param {boolean} isCollapsed - Target collapse state
+     */
     const toggleScene = useCallback((sceneId, isCollapsed) => {
       if (!editor?.view) return;
       
@@ -82,6 +100,12 @@ export function useEditorOperations(editor) {
       }).run();
     }, [editor]);
   
+    /**
+     * Toggles visibility state of all scenes in the document
+     * Useful for expanding/collapsing entire screenplay at once
+     * 
+     * @param {boolean} isCollapsed - Target collapse state for all scenes
+     */
     const toggleAllScenes = useCallback((isCollapsed) => {
       if (!editor?.view) return;
 
@@ -109,7 +133,10 @@ export function useEditorOperations(editor) {
       }).run();
     }, [editor]);
 
-  // determine if className is an active class in the current selection
+    /**
+     * Checks if a specific class is active in the current selection
+     * Used for maintaining button active states in the editor UI
+     */
   const isClassActive = useCallback((className) => {
     if (!editor) return false;
     const { from, to } = editor.state.selection;
@@ -126,6 +153,13 @@ export function useEditorOperations(editor) {
     return isActive;
   }, [editor]);
 
+    /**
+     * Generates the next sequential scene number
+     * Handles both numeric increments (1 -> 2) and letter suffixes (1A -> 1B)
+     * 
+     * @param {string} currentNumber - Current scene number
+     * @returns {string} Next available scene number
+     */
   const generateNextSceneNumber = useCallback((currentNumber) => {
     if (!currentNumber) return "1";
     const numStr = String(currentNumber);
@@ -140,6 +174,14 @@ export function useEditorOperations(editor) {
     return String(Number(currentNumber) + 1);
   }, []);
   
+    /**
+     * Finds next available scene number starting from a position
+     * Handles number conflicts by adding letter suffixes
+     * 
+     * @param {number} startPos - Starting position in document
+     * @param {string} proposedNumber - Desired scene number
+     * @returns {string} Available scene number
+     */
   const findNextAvailableSceneNumber = useCallback((startPos, proposedNumber) => {
     let isAvailable = true;
     
@@ -157,6 +199,12 @@ export function useEditorOperations(editor) {
     return `${baseNumber}A`;
   }, [editor]);
 
+  /**
+   * Updates classes on paragraphs in current selection
+   * Maintains VFX classes while updating other formatting
+   * 
+   * @param {Function} updateFn - Function to transform class list
+   */
   const updateParagraphClasses = useCallback((updateFn) => {
     const { from, to } = editor.state.selection;
     editor.view.state.doc.nodesBetween(from, to, (node, pos) => {
@@ -170,6 +218,12 @@ export function useEditorOperations(editor) {
     editor.chain().focus().setTextSelection({ from, to }).run();
   }, [editor]);
 
+  /**
+   * Toggles VFX difficulty level on selected paragraphs
+   * Ensures proper class combinations and maintains existing VFX tags
+   * 
+   * @param {string} level - VFX difficulty level to toggle
+   */
   const toggleVfx = useCallback((level) => {
     updateParagraphClasses(classes => {
       const nonVfxClasses = classes.filter(cls => !VFX_TAGS.includes(cls));
@@ -177,6 +231,13 @@ export function useEditorOperations(editor) {
     });
   }, [updateParagraphClasses]);
 
+  /**
+   * Toggles paragraph formatting classes with smart scene numbering
+   * For scene headings, automatically assigns appropriate scene numbers
+   * considering document structure and existing numbering
+   * 
+   * @param {string} className - Formatting class to toggle
+   */
   const toggleParagraphClass = useCallback((className) => {
     updateParagraphClasses(classes => {
       const vfxClasses = classes.filter(cls => VFX_TAGS.includes(cls));
@@ -244,7 +305,11 @@ export function useEditorOperations(editor) {
     editor.chain().focus().toggleMark('note').run()
   }, [editor]);
 
-  // update the vfx shot numbers in the whole document
+  /**
+   * Updates VFX shot numbers throughout the document
+   * Numbers only the first paragraph of each VFX block sequentially
+   * Subsequent paragraphs in the same block get null shot numbers
+   */
   const updateVfxShotNumber = useCallback(() => {
     if (!editor) return;
 

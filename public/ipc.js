@@ -1,3 +1,8 @@
+/**
+ * IPC (Inter-Process Communication) setup for Electron
+ * Manages file operations, content persistence, and script parsing
+ * between the main process and renderer process
+ */
 const { ipcMain, dialog, app } = require('electron');
 const log = require('electron-log');
 const path = require('path');
@@ -7,12 +12,28 @@ const { readPdf, backgroundOcrTask, readScript } = require('../src/main/utils/re
 const { writeScriptCsv, writeScenesCsv, writeTokens, writeHtml, writeScriptRaw } = require('../src/main/utils/savescript.js');
 const { EDITOR_CONFIG } = require('../src/config.main.js');
 
+/**
+ * Sets up IPC handlers for the main window
+ * Returns cleanup function to remove handlers on window close
+ * 
+ * @param {BrowserWindow} mainWindow - Electron browser window instance
+ * @returns {Function} Cleanup function to remove all handlers
+ */
 function setupIPC(mainWindow) {
+    // Tracks current file for save operations
     let currentFileName = null;
-    // File operations
+
+    /**
+     * Handles file opening with optional OCR processing
+     * Supports PDF (with/without OCR) and plain text script formats
+     * 
+     * @param {boolean} useOCR - Whether to process PDFs with OCR
+     * @throws {Error} On file read or processing failure
+     */
     const handleFileOpen = async (useOCR = false) => {
         log.debug('IPC: Handling menu-open-file');
         try {
+            // Configure dialog filters based on OCR mode
             const { filePaths } = await dialog.showOpenDialog({
                 properties: ['openFile'],
                 filters: useOCR 
@@ -22,6 +43,7 @@ function setupIPC(mainWindow) {
 
             if (!filePaths?.length) return;
 
+            // Track file info for save operations
             const filePath = filePaths[0];
             const fileName = path.basename(filePath);
             const fileExt = path.extname(filePath).toLowerCase();
@@ -29,12 +51,15 @@ function setupIPC(mainWindow) {
             currentFileName = fileName;
     
             let content;
+            // Handle PDF processing with progress feedback
             if (fileExt === '.pdf' && useOCR) {
+                // Show persistent toast for OCR progress
                 mainWindow.webContents.send('show-info', 'Starting OCR process...', {
                     toastId: 'ocr-progress',
                     autoClose: false
                 });
 
+                // Process PDF with OCR, updating progress
                 content = await backgroundOcrTask(filePath, (progress) => {
                     const { page, total } = progress;
                     mainWindow.webContents.send('update-toast', 
@@ -43,6 +68,7 @@ function setupIPC(mainWindow) {
                     );
                 });
 
+                // Cleanup OCR progress notifications
                 mainWindow.webContents.send('dismiss-toast', 'ocr-progress');
                 mainWindow.webContents.send('show-success', 'OCR completed successfully');
             } else if (fileExt === '.pdf') {
@@ -51,7 +77,7 @@ function setupIPC(mainWindow) {
                 content = await readScript(filePath);
             }
     
-            // Parse the content and convert to HTML
+            // Parse content and convert to editor format
             try {
                 const [tokens, entities] = await parseScript(content);
                 if (!tokens) {
@@ -61,9 +87,10 @@ function setupIPC(mainWindow) {
                 }
                 const html = await tokensToHtml(tokens, entities);
 
+                // Update editor state
                 mainWindow.webContents.send('set-file-name', fileName);
                 mainWindow.webContents.send('set-editor-content', html);
-                await handleSaveContent(null, { content: html }); // autosave
+                await handleSaveContent(null, { content: html }); // Ensure recovery backup
             } catch (error) {
                 log.error('Error in parsing/conversion:', error);
                 mainWindow.webContents.send('show-error', 'Failed to process file');
@@ -76,25 +103,30 @@ function setupIPC(mainWindow) {
         }
     };
 
+    /**
+     * Handles file saving with format conversion
+     * Supports multiple output formats with appropriate conversions
+     * 
+     * @throws {Error} On save failure or unsupported format
+     */
     const handleFileSave = async () => {
         log.debug('IPC: Handling menu-save-file');
         try {
-            // Get current editor content
+            // Request content from renderer with timeout protection
             const content = await new Promise((resolve, reject) => {
                 mainWindow.webContents.send('get-editor-content');
                 
-                // Set up timeout for response
                 const timeout = setTimeout(() => {
                     reject(new Error('Timeout waiting for editor content'));
                 }, 5000);
 
-                // Listen for response
                 ipcMain.once('editor-content', (_, content) => {
                     clearTimeout(timeout);
                     resolve(content);
                 });
             });
 
+            // Get save location from user
             const { filePath, canceled } = await dialog.showSaveDialog({
                 defaultPath: path.join(app.getPath('documents'), currentFileName || 'script'),
                 filters: [
@@ -107,6 +139,7 @@ function setupIPC(mainWindow) {
     
             if (canceled || !filePath) return;
     
+            // Convert and save based on chosen format
             const fileExt = path.extname(filePath).toLowerCase();
             const fileName = path.basename(filePath);
             const [tokens, entities] = htmlToTokens(content);
@@ -135,7 +168,10 @@ function setupIPC(mainWindow) {
         }
     };
 
-    // Auto-save content handlers
+    /**
+     * Auto-recovery content handlers
+     * Maintains a backup of editor content in app's user data directory
+     */
     const handleLoadContent = async () => {
         try {
             const filePath = path.join(app.getPath('userData'), 'content.html');
@@ -143,6 +179,7 @@ function setupIPC(mainWindow) {
                 const content = await fs.readFile(filePath, 'utf8');
                 return content;
             } catch (err) {
+                // Return default content if no backup exists
                 if (err.code === 'ENOENT') {
                     return EDITOR_CONFIG.defaultContent;
                 }
@@ -189,11 +226,10 @@ function setupIPC(mainWindow) {
         }
     };
 
-    // Register all handlers
+    // Register IPC handlers with cleanup support
     const invokeHandlers = {
         'handle-file-open': (_, useOCR) => handleFileOpen(useOCR),
         'handle-file-save': () => handleFileSave(),
-        // ... other handlers ...
     };
 
     const fileHandlers = {
@@ -203,7 +239,7 @@ function setupIPC(mainWindow) {
         'parse-html': handleParseHtml
     };
 
-    // Register handlers
+    // Register all handlers
     Object.entries(invokeHandlers).forEach(([channel, handler]) => {
         ipcMain.handle(channel, handler);
     });
@@ -212,19 +248,19 @@ function setupIPC(mainWindow) {
         ipcMain.handle(event, handler);
     });
 
-    // Cleanup function
+    /**
+     * Cleanup function to prevent memory leaks
+     * Removes all registered handlers when window closes
+     */
     const cleanup = () => {
-        // Remove invoke handlers
         Object.keys(invokeHandlers).forEach(channel => {
             ipcMain.removeHandler(channel);
         });
 
-        // Remove file operation handlers
         Object.keys(fileHandlers).forEach(event => {
             ipcMain.removeHandler(event);
         });
 
-        // Remove any remaining one-time listeners
         ipcMain.removeAllListeners('editor-content');
     };
 

@@ -1,3 +1,9 @@
+/**
+ * Main Electron process configuration
+ * Handles window management, IPC setup, and application lifecycle
+ * Implements graceful shutdown and error handling patterns
+ */
+
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
 const isDev = !app.isPackaged;
@@ -5,20 +11,28 @@ const log = require('electron-log');
 const { setupIPC } = require('./ipc.js');
 const { createMenu } = require('./menu.js');
 
-// Configure logging
+// Configure logging based on environment
 log.transports.file.level = isDev ? 'debug' : 'info';
 log.transports.console.level = isDev ? 'debug' : 'info';
 
-// Set the app name explicitly
+// Ensure consistent app name across platforms
 app.name = 'Breakdown';
 
+// Global references to prevent garbage collection
 let mainWindow = null;
 let cleanupIPC = null;
 let isQuitting = false;
 
+/**
+ * Creates and configures the main application window
+ * Handles window state, security settings, and error cases
+ * 
+ * @throws {Error} When window creation or content loading fails
+ */
 async function createWindow() {
     log.info('Creating window...');
 
+    // Configure window with security-conscious defaults
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
@@ -26,30 +40,30 @@ async function createWindow() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
-            webSecurity: !isDev // Enable webSecurity in production
+            webSecurity: !isDev // Disable webSecurity only in development
         },
     });
 
+    // Load appropriate content source based on environment
     const startUrl = isDev 
-        ? 'http://localhost:3001'  // React dev server
-        : `file://${path.join(__dirname, '../build/index.html')}`;
+        ? 'http://localhost:3001'  // Development server
+        : `file://${path.join(__dirname, '../build/index.html')}`; // Production build
 
     try {
         await mainWindow.loadURL(startUrl);
         log.info('Window loaded successfully');
 
-        // Create menu
+        // Initialize application components
         const menu = createMenu(mainWindow);
         Menu.setApplicationMenu(menu);
-
-        // Setup IPC handlers
         cleanupIPC = setupIPC(mainWindow);
 
-        // Window management
+        // Prevent dangling references
         mainWindow.on('closed', () => {
             mainWindow = null;
         });
 
+        // Enable DevTools in development
         if (isDev) {
             mainWindow.webContents.openDevTools();
         }
@@ -60,7 +74,14 @@ async function createWindow() {
     }
 }
 
-// App event handlers
+/**
+ * Application Lifecycle Management
+ * 
+ * Implements graceful startup with error recovery:
+ * - Attempts window creation
+ * - Shows error messages on failure
+ * - Delays quit to ensure error messages are visible
+ */
 app.on('ready', async () => {
     try {
         log.info('App is ready, creating window...');
@@ -71,23 +92,27 @@ app.on('ready', async () => {
         if (mainWindow) {
             mainWindow.webContents.send('show-error', 'Failed to start application');
         }
-        // Don't quit immediately on error to allow error message to be shown
+        // Delay quit to ensure error message visibility
         setTimeout(() => app.quit(), 3000);
     }
 });
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
-});
-
+// Handle macOS dock click behavior
 app.on('activate', () => {
     if (mainWindow === null) {
         createWindow();
     }
 });
 
+/**
+ * Graceful Shutdown Implementation
+ * 
+ * Ensures proper cleanup before exit:
+ * - Prevents multiple quit attempts
+ * - Runs cleanup handlers
+ * - Forces quit after timeout
+ * - Logs cleanup errors
+ */
 app.on('before-quit', (event) => {
     if (isQuitting) return;
     
@@ -96,17 +121,16 @@ app.on('before-quit', (event) => {
     isQuitting = true;
     
     try {
-        // Perform cleanup tasks
+        // Run cleanup tasks
         if (typeof cleanupIPC === 'function') {
             cleanupIPC();
         }
         
-        // Close the main window
         if (mainWindow) {
             mainWindow.close();
         }
         
-        // Force quit after a short delay to ensure cleanup
+        // Force quit after brief delay to ensure cleanup completes
         setTimeout(() => {
             app.exit(0);
         }, 100);
@@ -116,7 +140,14 @@ app.on('before-quit', (event) => {
     }
 });
 
-// Error handling
+/**
+ * Global Error Handling
+ * 
+ * Catches unhandled errors and rejections:
+ * - Logs errors for debugging
+ * - Shows user-friendly messages
+ * - Maintains application stability
+ */
 process.on('uncaughtException', (error) => {
     log.error('Uncaught exception:', error);
     if (mainWindow) {
