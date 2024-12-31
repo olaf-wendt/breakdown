@@ -8,6 +8,8 @@ import { HelpOverlay, HelpButton } from './components/HelpOverlay';
 import { ToastContainer, toast } from 'react-toastify';
 import log from 'electron-log/renderer';
 import 'react-toastify/dist/ReactToastify.css';
+import { SearchBox } from './components/SearchBox';
+import Analytics from './services/analytics';
 import "./App.css";
 
 /**
@@ -219,6 +221,21 @@ function App() {
   const { ipcRenderer } = window.require('electron');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [currentFileName, setcurrentFileName] = useState(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  const handleKeyDown = useCallback((e) => {
+    if (e.metaKey || e.ctrlKey) {
+      if (e.key === 'f') {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   const editor = useEditor({
     extensions,
@@ -236,6 +253,16 @@ function App() {
     document.title = currentFileName ? `Breakdown - ${currentFileName}` : 'Breakdown';
   }, [currentFileName]);
 
+  // Initialize analytics
+  useEffect(() => {
+    Analytics.init();
+    
+    // Identify user
+    ipcRenderer.invoke('get-user-id').then(userId => {
+      Analytics.identify(userId);
+      Analytics.track('app_launched');
+    });
+  }, []);
 
   /**
    * Main Effect Hook
@@ -291,6 +318,9 @@ function App() {
       },
       'set-file-name': (_, fileName) => {
         setcurrentFileName(fileName);
+      },
+      'menu-find': () => {
+        setIsSearchOpen(true);
       },
       'update-shot-number': updateVfxShotNumber,
       'update-toast': (_, toastId, message) => {
@@ -404,6 +434,12 @@ function App() {
       <BreakdownEditor editor={editor} updateVfxShotNumber={updateVfxShotNumber}/>
       <HelpButton onClick={() => setIsHelpOpen(true)} />
       <HelpOverlay isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+      {isSearchOpen && (
+        <SearchBox
+          editor={editor}
+          onClose={() => setIsSearchOpen(false)}
+        />
+      )}
       <ToastContainer /> 
     </div>
   );

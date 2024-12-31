@@ -51,6 +51,14 @@ function createMenu(mainWindow) {
                 { role: 'selectAll' },
                 { type: 'separator' },
                 {
+                    label: 'Find',
+                    accelerator: 'CmdOrCtrl+F',
+                    click: () => {
+                        log.debug('Menu: Find clicked');
+                        mainWindow.webContents.send('menu-find');
+                    }
+                },
+                {
                     label: 'Renumber VFX Shots',
                     click: () => {
                         mainWindow.webContents.send('update-shot-number');
