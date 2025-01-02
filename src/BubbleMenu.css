@@ -1,0 +1,41 @@
+.bubble-menu {
+    display: flex;
+    flex-direction: row;
+    background-color: #0D0D0D;
+    padding: 0.2rem;
+    border-radius: 0.2rem;
+    gap: 0.2rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+  
+  .bubble-menu-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  
+  .bubble-btn {
+    border: 1px solid #444;
+    color: #000000;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.2rem;
+    border-radius: 0.2rem;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    filter: brightness(80%); 
+    transition: all 0.2s ease;
+  }
+  
+  .bubble-btn:hover { filter: brightness(150%); opacity: 0.9; }
+  .bubble-btn.is-active { filter: brightness(120%); opacity: 1; }
+  .bubble-btn.is-active:hover { filter: brightness(180%); opacity: 1; }
+  .bubble-btn.scene { background-color: var(--color-scene); }
+  .bubble-btn.char { background-color: var(--color-char); }
+  .bubble-btn.prop { background-color: var(--color-prop); }
+  .bubble-btn.env { background-color: var(--color-env); }
+  .bubble-btn.easy { background-color: var(--color-easy); }
+  .bubble-btn.mid { background-color: var(--color-mid); }
+  .bubble-btn.hard { background-color: var(--color-hard); }
+  .bubble-btn.is-active { background-color: var(--color-active); }

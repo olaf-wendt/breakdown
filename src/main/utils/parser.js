@@ -1,27 +1,67 @@
-// parser.js
+/**
+ * Script Parser Module
+ * Handles parsing and conversion of screenplay text between different formats
+ */
 
 const path = require('path');
-const { JSDOM } = require('jsdom');
 const regex = require('./regex');
-const log = require('electron-log');
+const log = require('electron-log/renderer');
 const { EDITOR_CONFIG } = require('../../config.main.js');
 
-const vfxLevels = EDITOR_CONFIG.vfx.difficultyLevels.map(level => level.id);
 
+// Constants
+const VFX_LEVELS = EDITOR_CONFIG.vfx.difficultyLevels.map(level => level.id);
 
-// Helper functions
-function isBlank(string) {
-    return !string.trim();
+/**
+ * @typedef {Object} Token
+ * @property {string} type - Token type (scene-heading, action, dialogue, dialogue-begin, dialogue-end, transition, flashback, page-break)
+ * @property {string} [text] - Text content. Required for scene-heading, action, dialogue, transition, flashback
+ * @property {string} [vfx] - VFX annotation in format: "<shot_number?> <difficulty_level>"
+ *                           where shot_number is optional numeric prefix and 
+ *                           difficulty_level is one of VFX_LEVELS
+ * @property {string} [sceneNum] - Scene number. Present for scene-heading and flashback tokens
+ * @property {string} [pageNum] - Page number. Present for scene-heading, flashback, and page-break tokens
+ * @property {string} [character] - Character name. Only present for character tokens
+ * @property {boolean} [dual] - Whether this is part of dual dialogue. Only present for character tokens
+ */
+
+/**
+ * @typedef {Object} Entity
+ * @property {string} type - Entity type (char, prop, env)
+ * @property {string} name - Entity name
+ * @property {number} count - Number of occurrences
+ */
+
+// String manipulation utilities
+const StringUtils = {
+    isBlank: (string) => !string.trim(),
+    isNotBlank: (string) => Boolean(string.trim()),
+    stripRight: (text) => text.split('\n').map(line => line.trimEnd()).join('\n'),
+    escapeRegExp: (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+};
+
+/**
+ * Update VFX state with new annotation, preserving shot numbers
+ * @param {string|null} currentVfx - Current VFX state (e.g., "42 easy" or "hard")
+ * @param {string|null} newVfx - New VFX annotation
+ * @returns {string|null} Updated VFX state
+ */
+function updateVfxState(currentVfx, newVfx) {
+    if (!newVfx) return currentVfx;
+
+    const [newFirst, ...newRest] = newVfx.split(' ');
+    if (/^\d+$/.test(newFirst)) return newVfx;
+
+    const [currentShot] = currentVfx?.split(' ') || [];
+    return /^\d+$/.test(currentShot) ? `${currentShot} ${newFirst}` : newVfx;
 }
 
-function isNotBlank(string) {
-    return Boolean(string.trim());
-}
 
-function stripRight(text) {
-    return text.split('\n').map(line => line.trimEnd()).join('\n');
-}
-
+/**
+ * Lexical analysis of script text
+ * @param {string} script - Raw script text
+ * @returns {string} Processed script text
+ */
 function lexer(script) {
     const replacements = [
         { pattern: regex.boneyard, replacement: '\n$1\n' },
@@ -33,32 +73,55 @@ function lexer(script) {
         { pattern: regex.doublespaces, replacement: ' ' },
     ];
 
-    replacements.forEach(({ pattern, replacement }) => {
-        script = script.replace(pattern, replacement);
-    });
-
-    return script;
+    return replacements.reduce((text, { pattern, replacement }) => 
+        text.replace(pattern, replacement), script);
 }
 
+/**
+ * Process entity annotations in script text
+ * @param {string} name - Entity name
+ * @param {string} type - Entity type
+ * @param {boolean} increment - Whether to increment entity count
+ * @param {Object} entities - Entities collection
+ */
+function processEntity(name, type, increment = false, entities) {
+    const key = name.trim().toUpperCase();
+    entities[key] = entities[key] || { type: '', name: '', count: 0 };
+    entities[key].type = type;
+    if (increment) entities[key].count++;
+}
+
+/**
+ * Asynchronously parse script text into tokens and entities
+ * @param {string} script - Script text to parse
+ * @returns {Promise<[Token[], Object.<string, Entity>]>}
+ */
 async function parseScript(script) {
     return new Promise((resolve, reject) => {
         try {
-            // Move the parsing work to the next tick to not block
             setImmediate(() => {
                 try {
                     const [tokens, entities] = parseScriptSync(script);
-                    resolve ([tokens, entities]);
+                    resolve([tokens, entities]);
                 } catch (err) {
+                    log.error('Error in parseScript:', err);
                     reject(err);
                 }
             });
         } catch (err) {
+            log.error('Error initiating parseScript:', err);
             reject(err);
         }
     });
 }
 
+/**
+ * Synchronously parse script text
+ * @param {string} script - Script text to parse
+ * @returns {[Token[], Object.<string, Entity>]}
+ */
 function parseScriptSync(script) {
+    // Input validation
     if (!script) {
         log.error('parseScript received empty/null script');
         throw new Error('Cannot parse empty script');
@@ -69,356 +132,267 @@ function parseScriptSync(script) {
         throw new Error(`Expected string input but got ${typeof script}`);
     }
 
-    log.debug('Starting script parsing');
-    log.debug('Script length:', script.length);
+    log.debug('Starting script parsing', { length: script.length });
 
     const lines = script.split('\n').map(line => line.trimEnd());
-
-    let pageNum = 1, sceneNum = 0;
-    let tokens = [];
-    let entities = {};
-    let currentBlock = null, textBlock = [], currentVfx = null, currentIndent = 0, currentBlank = false;
+    const state = {
+        pageNum: 1,
+        sceneNum: 0,
+        tokens: [],
+        entities: {},
+        currentBlock: null,
+        textBlock: [],
+        currentVfx: null,
+        currentIndent: 0,
+        currentBlank: false
+    };
 
     for (let line of lines) {
-        let vfx = null;
-        const vfxMatch = line.match(regex['vfx-annotation']);
-        if (vfxMatch) {
-            vfx = vfxMatch[1];
+        try {
+            parseLine(line, state);
+        } catch (error) {
+            log.error('Error parsing line:', { line, error });
+            // Continue parsing other lines
         }
-        line = line.replace(regex['vfx-annotation'], '');
+    }
 
-        // Process single entity annotations
-        const processEntity = (name, type, increment = false) => {
-            const key = name.trim().toUpperCase();
-            entities[key] = entities[key] || { type: '', name: '', count: 0 };
-            entities[key].type = type;
-            if (increment) entities[key].count++;
-        };
+    // Handle any remaining block
+    if (state.currentBlock === 'dialogue' && state.textBlock.length) {
+        state.tokens.push({ 
+            type: 'dialogue', 
+            text: state.textBlock.join('\n') + '\n', 
+            vfx: state.currentVfx 
+        });
+        state.tokens.push({ type: 'dialogue-end' });
+    } else if (state.currentBlock === 'action' && state.textBlock.length) {
+        state.tokens.push({ 
+            type: 'action', 
+            text: state.textBlock.join('\n') + '\n', 
+            vfx: state.currentVfx 
+        });
+    }
 
-        // Process single annotations (e.g., **JOHN**[[char prop]])
-        [...line.matchAll(regex['annotation'])]
-            .filter(match => match?.length >= 3 && match[1])
-            .forEach(match => {
-                //log.debug('annotation match', match);
-                processEntity(match[1], match[2], true);
-            });
+    log.debug('Parsing complete', { 
+        tokens: state.tokens.length, 
+        entities: Object.keys(state.entities).length 
+    });
 
-        let lineClean = line.replace(regex['annotation'], '$1').trim();
+    return [state.tokens, state.entities];
+}
 
-        // Process multi-entity annotations (e.g., [[char BOY JOHN]])
-        [...lineClean.matchAll(regex['entity-annotation'])]
-            .filter(match => match?.length >= 3 && match[2])
-            .forEach(match => {
-                //log.debug('entity annotation match', match);
-                match[2]
-                    .split(',')
-                    .map(name => name.trim())
-                    .filter(Boolean)
-                    .forEach(name => processEntity(name, match[1]));
-            });
+/**
+ * Extract VFX annotations from a line of text
+ * @param {string} line - Line to process
+ * @returns {[string|null, string]} Tuple of [vfx annotation, cleaned line]
+ */
+function extractVfxAnnotations(line) {
+    const vfxMatches = [...line.matchAll(new RegExp(regex['vfx-annotation'], 'g'))];
+    if (!vfxMatches.length) return [null, line];
 
-        lineClean = lineClean.replace(regex['entity-annotation'], '');
-        //log.debug('line clean:', lineClean);
+    // Get the last VFX annotation (in case of multiple)
+    const [shotNumber, difficulty] = vfxMatches.at(-1).slice(1);
+    const vfx = shotNumber ? `${shotNumber} ${difficulty}` : difficulty;
 
-        const isBlank = regex['blank'].test(lineClean);
-        const indent = isBlank && !currentBlank ? currentIndent : line.length - line.trimStart().length;
-        const indentRight = (indent - currentIndent) > 5; // currentLine jumps to the right
-        const indentJump = isBlank && !currentBlank ? false : Math.abs(currentIndent - indent) > 5;
-        currentIndent = indent;
-        currentBlank =  isBlank;
+    // Remove all VFX annotations from the line
+    const cleanedLine = vfxMatches.reduce(
+        (text, match) => text.replace(match[0], ''),
+        line
+    );
 
-        log.debug('line indent ' + indent + ' ' + indentJump + ': ' + lineClean);
+    return [vfx, cleanedLine];
+}
 
-        if (currentBlock === 'dialogue') {
-            const nextIsBreak = ['page-break', 'page-number', 'scene-heading', 'transition', 'flashback', 'action'].some(e => regex[e].test(lineClean));
-            if (nextIsBreak || (textBlock.length && indentJump)) {
-                if (textBlock.length) {
-                    tokens.push({ type: 'dialogue', text: textBlock.join('\n') + '\n', vfx: currentVfx });
-                }
-                log.debug('pushing dialogue', textBlock.join(''));
-                tokens.push({ type: 'dialogue-end' });
-                currentBlock = null;
-                textBlock = [];
-                currentVfx = null;
-            } else {
-                if (!isBlank || textBlock.length) {
-                    textBlock.push(line);
-                }
-                continue;
+/**
+ * Parse a single line of script text
+ * @param {string} line - Line to parse
+ * @param {Object} state - Parser state
+ */
+function parseLine(line, state) {
+    const [vfx, cleanedLine] = extractVfxAnnotations(line);
+    line = cleanedLine;
+
+    // Process annotations
+    [...line.matchAll(regex['annotation'])]
+        .filter(match => match?.length >= 3 && match[1])
+        .forEach(match => {
+            processEntity(match[1], match[2], true, state.entities);
+        });
+
+    let lineClean = line.replace(regex['annotation'], '$1').trim();
+
+    // Process multi-entity annotations
+    [...lineClean.matchAll(regex['entity-annotation'])]
+        .filter(match => match?.length >= 3 && match[2])
+        .forEach(match => {
+            match[2]
+                .split(',')
+                .map(name => name.trim())
+                .filter(Boolean)
+                .forEach(name => processEntity(name, match[1], false, state.entities));
+        });
+
+    lineClean = lineClean.replace(regex['entity-annotation'], '');
+
+    // Calculate indentation
+    const isBlank = regex['blank'].test(lineClean);
+    const indent = isBlank && !state.currentBlank ? 
+        state.currentIndent : 
+        line.length - line.trimStart().length;
+    const indentRight = (indent - state.currentIndent) > 4;
+    const indentJump = isBlank && !state.currentBlank ? 
+        false : 
+        Math.abs(state.currentIndent - indent) > 4;
+
+    state.currentIndent = indent;
+    state.currentBlank = isBlank;
+
+    // Handle current block continuation
+    if (handleBlockContinuation(lineClean, line, indentJump, indentRight, state, vfx)) {
+        return;
+    }
+
+    // Parse line based on type
+    parseLineByType(lineClean, line, indentJump, state, vfx);
+}
+
+/**
+ * Handle continuation of current block (dialogue or action)
+ * @returns {boolean} Whether line was handled as continuation
+ */
+function handleBlockContinuation(lineClean, line, indentJump, indentRight, state, vfx) {
+    if (state.currentBlock === 'dialogue') {
+        const nextIsBreak = ['page-break', 'page-number', 'scene-heading', 'transition', 'flashback', 'action']
+            .some(e => regex[e].test(lineClean));
+
+        if (nextIsBreak || (state.textBlock.length && indentJump)) {
+            if (state.textBlock.length) {
+                state.tokens.push({ 
+                    type: 'dialogue', 
+                    text: state.textBlock.join('\n') + '\n', 
+                    vfx: state.currentVfx 
+                });
             }
-        } else if (currentBlock === 'action') {
-            const nextIsCharacter = regex['character'].test(lineClean) && indentRight;
-            const nextIsBreak = ['blank', 'page-break', 'page-number', 'scene-heading', 'transition', 'flashback'].some(e => regex[e].test(lineClean)); // line.trim()
-            if (nextIsCharacter || nextIsBreak) {
-                tokens.push({ type: 'action', text: textBlock.join('\n') + '\n', vfx: currentVfx });
-                log.debug('pushing action', textBlock.join(''));
-                currentBlock = null;
-                textBlock = [];
-                currentVfx = null;
-            } else {
-                const actionMatch = line.match(regex['action']);
-                if (actionMatch) {
-                    line = actionMatch[1]; // strip leading exclamation mark if present
-                }
-                textBlock.push(line);
-                continue;
+            state.tokens.push({ type: 'dialogue-end' });
+            state.currentBlock = null;
+            state.textBlock = [];
+            state.currentVfx = null;
+        } else {
+            if (!StringUtils.isBlank(lineClean) || state.textBlock.length) {
+                state.textBlock.push(line);
+                // Update VFX state with the most recent valid annotation
+                state.currentVfx = updateVfxState(state.currentVfx, vfx);
             }
+            return true;
         }
+    } else if (state.currentBlock === 'action') {
+        const nextIsCharacter = regex['character'].test(lineClean) && indentRight;
+        const nextIsBreak = ['blank', 'page-break', 'page-number', 'scene-heading', 'transition', 'flashback']
+            .some(e => regex[e].test(lineClean));
 
-        const sceneHeadingMatch = lineClean.match(regex['scene-heading']);
-        if (sceneHeadingMatch) {
-            const newSceneNum = sceneHeadingMatch[4] || sceneHeadingMatch[1] || (parseInt(sceneNum) + 1).toString();
-            sceneNum = newSceneNum;
-            const heading = sceneHeadingMatch[2] ? sceneHeadingMatch[2].trim() : "";
-            tokens.push({ type: 'scene-heading', text: heading, 'scene-num': sceneNum, 'page-num': pageNum, vfx });
-        } else if (regex['transition'].test(lineClean)) {
-            tokens.push({ type: 'transition', text: line + '\n' });
-        } else if (regex['flashback'].test(lineClean)) {
-            tokens.push({ type: 'flashback', text: line.trim(), 'scene-num': sceneNum, 'page-num': pageNum, vfx });
-        } else if (regex['page-break'].test(lineClean)) {
-            pageNum++;
-            tokens.push({ type: 'page-break', 'page-num': pageNum });
-        } else if (regex['page-number'].test(lineClean)) {
-            // skip for now
-        } else if (regex['blank'].test(lineClean)) {
-            // skip blank lines
-        } else if (regex['character'].test(lineClean) && indentJump) {
-            const characterMatch = lineClean.match(regex['character']);
-            const char = characterMatch[1] ? characterMatch[1].trim() : characterMatch[2].trim();
-            tokens.push({ type: 'dialogue-begin' });
-            tokens.push({ type: 'character', text: line.trim(), character: char, dual: Boolean(characterMatch[4]), vfx });
-            entities[char] = entities[char] || { type: '', name: '', count: 0 };
-            entities[char].count++;
-            entities[char].type = 'char';
-            currentBlock = 'dialogue';
-            textBlock = [];
-            currentVfx = vfx;
-            log.debug('character:', lineClean);
+        if (nextIsCharacter || nextIsBreak) {
+            state.tokens.push({ 
+                type: 'action', 
+                text: state.textBlock.join('\n') + '\n', 
+                vfx: state.currentVfx 
+            });
+            state.currentBlock = null;
+            state.textBlock = [];
+            state.currentVfx = null;
         } else {
             const actionMatch = line.match(regex['action']);
             if (actionMatch) {
-                line = actionMatch[1]; // strip leading exclamation mark if present
+                line = actionMatch[1];
             }
-            currentBlock = 'action';
-            textBlock = [line];
-            currentVfx = vfx;
+            state.textBlock.push(line);
+            // Update VFX state with the most recent valid annotation
+            state.currentVfx = updateVfxState(state.currentVfx, vfx);
+            return true;
         }
     }
-    return [tokens, entities];
+    return false;
 }
 
-async function tokensToHtml(tokens, entities = {}) {
-    return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            reject(new Error('tokensToHtml timed out after 30 seconds'));
-        }, 30000);
+/**
+ * Parse line based on its type
+ */
+function parseLineByType(lineClean, line, indentJump, state, vfx) {
+    const sceneHeadingMatch = lineClean.match(regex['scene-heading']);
+    if (sceneHeadingMatch) {
+        const newSceneNum = sceneHeadingMatch[4] || 
+            sceneHeadingMatch[1] || 
+            (parseInt(state.sceneNum) + 1).toString();
+        state.sceneNum = newSceneNum;
+        const heading = sceneHeadingMatch[2] ? sceneHeadingMatch[2].trim() : "";
+        state.tokens.push({ 
+            type: 'scene-heading', 
+            text: heading, 
+            'scene-num': state.sceneNum, 
+            'page-num': state.pageNum, 
+            vfx 
+        });
+    } else if (regex['transition'].test(lineClean)) {
+        state.tokens.push({ type: 'transition', text: line + '\n' });
+    } else if (regex['flashback'].test(lineClean)) {
+        state.tokens.push({ 
+            type: 'flashback', 
+            text: line.trim(), 
+            'scene-num': state.sceneNum, 
+            'page-num': state.pageNum, 
+            vfx 
+        });
+    } else if (regex['page-break'].test(lineClean)) {
+        state.pageNum++;
+        state.tokens.push({ type: 'page-break', 'page-num': state.pageNum });
+    } else if (regex['page-number'].test(lineClean)) {
+        // Skip page numbers
+    } else if (regex['blank'].test(lineClean)) {
+        // Skip blank lines
+    } else if (regex['character'].test(lineClean) && indentJump) {
+        handleCharacterLine(lineClean, line, state, vfx);
+    } else {
+        handleActionLine(line, state, vfx);
+    }
+}
 
-        try {
-            setImmediate(() => {
-                try {
-                    const result = tokensToHtmlSync(tokens, entities);
-                    clearTimeout(timeout);
-                    resolve(result);
-                } catch (err) {
-                    clearTimeout(timeout);
-                    reject(err);
-                }
-            });
-        } catch (err) {
-            clearTimeout(timeout);
-            reject(err);
-        }
+/**
+ * Handle character line parsing
+ */
+function handleCharacterLine(lineClean, line, state, vfx) {
+    const characterMatch = lineClean.match(regex['character']);
+    const char = characterMatch[1] ? 
+        characterMatch[1].trim() : 
+        characterMatch[2].trim();
+
+    state.tokens.push({ type: 'dialogue-begin' });
+    state.tokens.push({ 
+        type: 'character', 
+        text: line.trim(), 
+        character: char, 
+        dual: Boolean(characterMatch[4]), 
+        vfx 
     });
+
+    state.entities[char] = state.entities[char] || { type: '', name: '', count: 0 };
+    state.entities[char].count++;
+    state.entities[char].type = 'char';
+    state.currentBlock = 'dialogue';
+    state.textBlock = [];
+    state.currentVfx = vfx;
 }
 
-function tokensToHtmlSync(tokens, entities = {}) {
-    log.debug('Starting tokensToHtml conversion');
-    log.debug('Number of tokens:', tokens?.length);
-    log.debug('Number of entities:', Object.keys(entities).length);
-
-    // Build HTML string instead of manipulating DOM directly
-    let htmlParts = [];
-    let processedCount = 0;
-    const vfxRegex = new RegExp(`\\s*(\\d+)?\\s*(${vfxLevels.join('|')})\\s*`);
-
-    // Create entity regex once
-    const entityNames = Object.keys(entities);
-    const entityPattern = entityNames
-        .map(e => `(?<!\\*\\*)\\b(${escapeRegExp(e)})\\b(?!\\*\\*)`)
-        .join("|");
-    let entityRegex = entityNames.length ? new RegExp(entityPattern, 'gi') : null;
-    //log.debug('entity pattern:', entityPattern);
-
-    function wrapMark(line) {
-        if (!entityRegex) return line;
-        return line.replace(entityRegex, (match) => {
-            const key = match.trim().toUpperCase();
-            if (!entities[key]) return match;
-            return `<mark class="${entities[key].type}">${key}</mark>`;
-        }).replace(regex['annotation'], '<mark class="$2">$1</mark>');
+/**
+ * Handle action line parsing
+ */
+function handleActionLine(line, state, vfx) {
+    const actionMatch = line.match(regex['action']);
+    if (actionMatch) {
+        line = actionMatch[1];
     }
-
-    log.debug('Processing tokens');
-    for (const token of tokens) {
-        try {
-            const tokenText = token.text || '';
-            // wrap notes in the correct html span
-            const cleanText = tokenText.replace(regex['note'], '<span data-type="note" class="note-bubble">$1</span>');
-            const tokenTextWrap = wrapMark(cleanText); 
-            //log.debug('wrapped text', tokenTextWrap);
-
-            const m = token.vfx ? token.vfx.match(vfxRegex) : null;
-            const vfxClasses = m ? ` vfx ${m[2]}` : (token.vfx ? ' vfx' : '');
-            const vfxShotNum = m && m[1] ? ` data-shot-number="${m[1]}"` : '';
-
-
-            switch (token.type) {
-                case 'scene-heading':
-                    const sceneNum = token['scene-num'] ? ` data-scene-number=${token['scene-num']}` : '';
-                    htmlParts.push(`<p class="scene-heading${vfxClasses}"${sceneNum}>${tokenTextWrap}</p><p><br></p>`);
-                    break;
-                case 'transition':
-                    htmlParts.push(`<p class="transition${vfxClasses}"${vfxShotNum}>${tokenTextWrap}</p>\n<p><br></p>`);
-                    break;
-                case 'flashback':
-                    htmlParts.push(`<p class="flashback${vfxClasses}"${vfxShotNum}>${tokenTextWrap}</p>`);
-                    break;
-                case 'character':
-                    htmlParts.push(`<p class="character${vfxClasses}"${vfxShotNum}>${tokenTextWrap}</p>`);
-                    break;
-                case 'parenthetical':
-                    htmlParts.push(`<p class="parenthetical"${vfxShotNum}>${tokenTextWrap}</p>`);
-                    break;
-                case 'dialogue':
-                    const lines = tokenTextWrap.split('\n')
-                        .filter(line => line.trim())
-                        .map(line => `<p class="dialogue${vfxClasses}"${vfxShotNum}>${line.trim()}</p>`)
-                        .join('');
-                    htmlParts.push(lines + '<p><br></p>');
-                    break;
-                case 'action':
-                    const actionLines = tokenTextWrap.split('\n')
-                        .filter(line => line.trim())
-                        .map(line => `<p class="action${vfxClasses}"${vfxShotNum}>${line.trim()}</p>`)
-                        .join('');
-                    htmlParts.push(actionLines + '<p><br></p>');
-                    break;
-                case 'centered':
-                    htmlParts.push(`<p class="centered${vfxClasses}"${vfxShotNum}>${tokenTextWrap}</p>`);
-                    break;
-                case 'page-break':
-                    htmlParts.push(`<p class="page-break" data-page-number="${token['page-num']}">=======================================================  </p><p><br></p>`);
-                    break;
-            }
-            processedCount++;
-            if (processedCount % 100 === 0) {
-                log.debug(`Processed ${processedCount}/${tokens.length} tokens`);
-            }
-        } catch (err) {
-            log.error('Error processing token:', err);
-            log.error('Token:', token);
-        }
-    }
-    const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-    const body = dom.window.document.body;
-    body.innerHTML = htmlParts.join('');
-
-    log.debug('Finished processing tokens');
-    return body.innerHTML;
-}
-
-function htmlToTokens(html) {
-    const dom = new JSDOM(html);
-    const document = dom.window.document;
-    const paras = document.querySelectorAll('p');
-    const tokens = [];
-    const entities = {};
-    let blockType = null, blockText = [], blockVfx = null;
-
-    for (const p of paras) {
-        const classes = p.classList;
-        const vfxClasses = classes.contains('vfx') 
-            ? (p.dataset.shotNumber || '') + ' ' + vfxLevels.filter(c => classes.contains(c)).join(' ')
-            : null;
-        
-        for (const mark of p.querySelectorAll('mark')) {
-            const entityName = mark.textContent.toUpperCase();
-            entities[entityName] = entities[entityName] || { type: '', name: '', count: 0 };
-            entities[entityName].type = mark.classList[0];
-            entities[entityName].count++;
-            mark.outerHTML = `**${mark.textContent}**[[${mark.classList[0]}]]`;
-        }
-
-        const noteElements = p.querySelectorAll('.note-bubble');
-        const notes = Array.from(noteElements).map(note => note.textContent);
-        noteElements.forEach(note => note.remove());  // Remove notes from text content
-        const noteText = notes.length 
-            ? ' ' + notes.map(note => `[[${note}]]`).join(' ')
-            : '';
-
-        const text = p.textContent.trim() + noteText;
-
-
-        if (isBlank(text)) {
-            classes.length = 0; // Make sure empty lines break a block
-        }
-
-        // Gather any entity definitions
-        const entityMatches = text.matchAll(new RegExp(regex['entity-annotation'], 'g'));
-        for (const m of entityMatches) {
-            for (const ent of m[2].split(',')) {
-                const entityName = ent.trim().toUpperCase();
-                entities[entityName] = entities[entityName] || { type: '', name: '', count: 0 };
-                entities[entityName].type = m[1];
-            }
-        }
-
-        if (blockType && !classes.contains(blockType)) {
-            tokens.push({ type: blockType, text: blockText.join('\n'), vfx: blockVfx });
-            blockType = null;
-            blockText = [];
-            blockVfx = null;
-        }
-
-        if (classes.contains('action')) {
-            blockType = 'action';
-            blockVfx = blockVfx || vfxClasses;
-            blockText.push(text);
-        } else if (classes.contains('dialogue')) {
-            blockType = 'dialogue';
-            blockVfx = blockVfx || vfxClasses;
-            blockText.push(text);
-        } else if (classes.contains('character')) {
-            tokens.push({ type: 'character', text, character: text, vfx: vfxClasses });
-        } else if (classes.contains('parenthetical')) {
-            tokens.push({ type: 'parenthetical', text, vfx: vfxClasses });
-        } else if (classes.contains('scene-heading')) {
-            tokens.push({ type: 'scene-heading', text, 'scene-num': p.dataset.sceneNumber || '', vfx: vfxClasses });
-        } else if (classes.contains('page-break')) {
-            tokens.push({ type: 'page-break', 'page-num': p.dataset.pageNumber || '' });
-        } else if (classes.contains('transition')) {
-            tokens.push({ type: 'transition', text, vfx: vfxClasses });
-        } else if (classes.contains('flashback')) {
-            tokens.push({ type: 'flashback', text, vfx: vfxClasses });
-        } else if (classes.contains('centered')) {
-            tokens.push({ type: 'centered', text, vfx: vfxClasses });
-        }
-    }
-
-    if (blockType) {
-        tokens.push({ type: blockType, text: blockText.join('\n'), vfx: blockVfx });
-    }
-
-    return [tokens, entities];
-}
-
-// Helper function to escape special characters in regex
-function escapeRegExp(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    state.currentBlock = 'action';
+    state.textBlock = [line];
+    state.currentVfx = vfx;
 }
 
 module.exports = {
-    parseScript,
-    tokensToHtml,
-    htmlToTokens,
+    parseScript
 };

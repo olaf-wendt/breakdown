@@ -1,26 +1,56 @@
-import { useCallback } from 'react';
-import { EDITOR_CONFIG } from '../config.main.esm.js'; 
+import { useCallback, useMemo } from 'react';
+import { EDITOR_CONFIG } from '../config';
+import log from 'electron-log/renderer';
 
+// VFX difficulty levels from config
 const VFX_TAGS = ['vfx', ...EDITOR_CONFIG.vfx.difficultyLevels.map(level => level.id)];
+
+/**
+ * @typedef {Object} EditorOperations
+ * @property {Function} initializeScenes - Initialize scene structure and numbering
+ * @property {Function} toggleScene - Toggle visibility of a specific scene
+ * @property {Function} toggleAllScenes - Toggle visibility of all scenes
+ * @property {Function} toggleVfx - Toggle VFX difficulty level on selected paragraphs
+ * @property {Function} isClassActive - Check if a class is active in current selection
+ * @property {Function} toggleParagraphClass - Toggle paragraph formatting with smart scene numbering
+ * @property {Function} toggleHighlight - Toggle highlight mark with specified class
+ * @property {Function} toggleNote - Toggle note mark
+ * @property {Function} updateVfxShotNumber - Update VFX shot numbers throughout document
+ */
 
 /**
  * Custom hook providing editor operations for screenplay formatting and management
  * Handles scene numbering, collapsing, VFX shot management, and paragraph styling
  * 
- * @param {Editor} editor - TipTap editor instance
- * @returns {Object} Collection of editor operation functions
+ * @param {import('@tiptap/core').Editor} editor - TipTap editor instance
+ * @returns {EditorOperations} Collection of editor operation functions
  */
 export function useEditorOperations(editor) {
+  /**
+   * Safely execute editor commands with error handling
+   * @param {Function} operation - Editor operation to execute
+   * @param {string} operationName - Name of operation for logging
+   */
+  const safeExecute = useCallback((operation, operationName) => {
+    if (!editor?.view) {
+      log.warn(`${operationName}: Editor not ready`);
+      return;
+    }
 
-    /**
-     * Initializes scene structure by setting collapse states and scene numbers
-     * Traverses document to ensure all paragraphs within a scene share the same number
-     * Only sets collapse state if not already defined
-     */
-    const initializeScenes = useCallback(() => {
-      if (!editor?.view) return;
-      
-      console.log('Initializing scenes...');
+    try {
+      operation();
+    } catch (error) {
+      log.error(`Error in ${operationName}:`, error);
+    }
+  }, [editor]);
+
+  /**
+   * Initializes scene structure by setting collapse states and scene numbers
+   * Traverses document to ensure all paragraphs within a scene share the same number
+   */
+  const initializeScenes = useCallback(() => {
+    safeExecute(() => {
+      log.debug('Initializing scenes...');
       
       editor.chain().focus().command(({ tr }) => {
         let currentSceneNumber = null;
@@ -31,8 +61,6 @@ export function useEditorOperations(editor) {
             if (node.attrs.class?.includes('scene-heading')) {
               currentSceneNumber = node.attrs['data-scene-number'];
               currentScenePos = pos;
-    
-              console.log('initializing scene', currentSceneNumber);
               
               // Only set if data-collapsed attribute doesn't exist
               if (currentSceneNumber && node.attrs['data-collapsed'] === undefined) {
@@ -51,19 +79,17 @@ export function useEditorOperations(editor) {
         });
         return true;
       }).run();
-    }, [editor]);
+    }, 'initializeScenes');
+  }, [editor, safeExecute]);
 
-    /**
-     * Toggles visibility of paragraphs within a specific scene
-     * Updates both scene heading and all related paragraphs
-     * 
-     * @param {string} sceneId - Scene number identifier
-     * @param {boolean} isCollapsed - Target collapse state
-     */
-    const toggleScene = useCallback((sceneId, isCollapsed) => {
-      if (!editor?.view) return;
-      
-      console.log('Toggling scene:', { sceneId, isCollapsed });
+  /**
+   * Toggles visibility of paragraphs within a specific scene
+   * @param {string} sceneId - Scene number identifier
+   * @param {boolean} isCollapsed - Target collapse state
+   */
+  const toggleScene = useCallback((sceneId, isCollapsed) => {
+    safeExecute(() => {
+      log.debug('Toggling scene:', { sceneId, isCollapsed });
       
       editor.chain().focus().command(({ tr }) => {
         let updatedCount = 0;
@@ -72,13 +98,10 @@ export function useEditorOperations(editor) {
           const nodeSceneId = node.attrs['data-scene-number'];
           
           if (node.type.name === 'paragraph' && String(nodeSceneId) === String(sceneId)) {
-            console.log('updating', node.attrs);
-
             if (node.attrs.class?.includes('scene-heading')) {
-              console.log('Updating scene heading:', { pos, attrs: node.attrs });
               tr.setNodeMarkup(pos, undefined, {
                 ...node.attrs,
-                'data-scene-number': sceneId, // Ensure scene number is set
+                'data-scene-number': sceneId,
                 'data-collapsed': String(isCollapsed)
               });
               updatedCount++;
@@ -87,7 +110,7 @@ export function useEditorOperations(editor) {
               if (isCollapsed) classes.push('collapsed');
               tr.setNodeMarkup(pos, undefined, {
                 ...node.attrs,
-                'data-scene-number': sceneId, // Ensure scene number is set
+                'data-scene-number': sceneId,
                 class: classes.join(' ').trim()
               });
               updatedCount++;
@@ -95,21 +118,19 @@ export function useEditorOperations(editor) {
           }
         });
         
-        console.log(`Updated ${updatedCount} paragraphs`);
+        log.debug(`Updated ${updatedCount} paragraphs`);
         return updatedCount > 0;
       }).run();
-    }, [editor]);
-  
-    /**
-     * Toggles visibility state of all scenes in the document
-     * Useful for expanding/collapsing entire screenplay at once
-     * 
-     * @param {boolean} isCollapsed - Target collapse state for all scenes
-     */
-    const toggleAllScenes = useCallback((isCollapsed) => {
-      if (!editor?.view) return;
+    }, 'toggleScene');
+  }, [editor, safeExecute]);
 
-      console.log('Toggling all scenes');
+  /**
+   * Toggles visibility state of all scenes in the document
+   * @param {boolean} isCollapsed - Target collapse state for all scenes
+   */
+  const toggleAllScenes = useCallback((isCollapsed) => {
+    safeExecute(() => {
+      log.debug('Toggling all scenes:', { isCollapsed });
   
       editor.chain().focus().command(({ tr }) => {
         editor.state.doc.descendants((node, pos) => {
@@ -131,135 +152,137 @@ export function useEditorOperations(editor) {
         });
         return true;
       }).run();
-    }, [editor]);
+    }, 'toggleAllScenes');
+  }, [editor, safeExecute]);
 
-    /**
-     * Checks if a specific class is active in the current selection
-     * Used for maintaining button active states in the editor UI
-     */
+  /**
+   * Checks if a specific class is active in the current selection
+   * @param {string} className - Class name to check
+   * @returns {boolean} Whether the class is active
+   */
   const isClassActive = useCallback((className) => {
     if (!editor) return false;
+    
     const { from, to } = editor.state.selection;
     let isActive = false;
+    
     editor.state.doc.nodesBetween(from, to, (node) => {
-        if (node.type.name === 'paragraph') {
-            const classes = node.attrs.class ? node.attrs.class.split(' ') : [];
-            if (classes.includes(className)) {
-                isActive = true;
-                return false;
-            }
+      if (node.type.name === 'paragraph') {
+        const classes = node.attrs.class ? node.attrs.class.split(' ') : [];
+        if (classes.includes(className)) {
+          isActive = true;
+          return false;
         }
-    });
-    return isActive;
-  }, [editor]);
-
-    /**
-     * Generates the next sequential scene number
-     * Handles both numeric increments (1 -> 2) and letter suffixes (1A -> 1B)
-     * 
-     * @param {string} currentNumber - Current scene number
-     * @returns {string} Next available scene number
-     */
-  const generateNextSceneNumber = useCallback((currentNumber) => {
-    if (!currentNumber) return "1";
-    const numStr = String(currentNumber);
-    // If it ends with a letter, increment the letter
-    if (numStr.match(/\d+[A-Z]$/)) {
-      const base = numStr.slice(0, -1);
-      const letter = numStr.slice(-1);
-      return `${base}${String.fromCharCode(letter.charCodeAt(0) + 1)}`;
-    }
-    
-    // Otherwise increment the number
-    return String(Number(currentNumber) + 1);
-  }, []);
-  
-    /**
-     * Finds next available scene number starting from a position
-     * Handles number conflicts by adding letter suffixes
-     * 
-     * @param {number} startPos - Starting position in document
-     * @param {string} proposedNumber - Desired scene number
-     * @returns {string} Available scene number
-     */
-  const findNextAvailableSceneNumber = useCallback((startPos, proposedNumber) => {
-    let isAvailable = true;
-    
-    editor.state.doc.descendants((node, pos) => {
-      if (pos <= startPos) return; // Skip nodes before our position
-      if (node.attrs['data-scene-number'] === proposedNumber) {
-        isAvailable = false;
-        return false;
       }
     });
     
-    if (isAvailable) return proposedNumber;
-    // If number is taken, try adding 'A' to the previous number
-    const baseNumber = proposedNumber.match(/\d+/)[0];
-    return `${baseNumber}A`;
+    return isActive;
   }, [editor]);
 
   /**
+   * Scene number generation utilities
+   */
+  const sceneNumberUtils = useMemo(() => ({
+    generateNext: (currentNumber) => {
+      if (!currentNumber) return "1";
+      const numStr = String(currentNumber);
+      
+      if (numStr.match(/\d+[A-Z]$/)) {
+        const base = numStr.slice(0, -1);
+        const letter = numStr.slice(-1);
+        return `${base}${String.fromCharCode(letter.charCodeAt(0) + 1)}`;
+      }
+      
+      return String(Number(currentNumber) + 1);
+    },
+
+    findNextAvailable: (startPos, proposedNumber) => {
+      let isAvailable = true;
+      
+      editor.state.doc.descendants((node, pos) => {
+        if (pos <= startPos) return;
+        if (node.attrs['data-scene-number'] === proposedNumber) {
+          isAvailable = false;
+          return false;
+        }
+      });
+      
+      if (isAvailable) return proposedNumber;
+      const baseNumber = proposedNumber.match(/\d+/)[0];
+      return `${baseNumber}A`;
+    }
+  }), [editor]);
+
+  /**
    * Updates classes on paragraphs in current selection
-   * Maintains VFX classes while updating other formatting
-   * 
    * @param {Function} updateFn - Function to transform class list
    */
   const updateParagraphClasses = useCallback((updateFn) => {
     const { from, to } = editor.state.selection;
+    
     editor.view.state.doc.nodesBetween(from, to, (node, pos) => {
       if (node.type.name === 'paragraph') {
         const currentClasses = node.attrs.class ? node.attrs.class.split(' ') : [];
         const newClasses = updateFn(currentClasses);
-        const nc = newClasses.join(' ');
-        editor.chain().focus().setNodeSelection(pos).updateAttributes('paragraph', { class: nc }).run();
+        editor.chain()
+          .focus()
+          .setNodeSelection(pos)
+          .updateAttributes('paragraph', { class: newClasses.join(' ') })
+          .run();
       }
     });
+    
     editor.chain().focus().setTextSelection({ from, to }).run();
   }, [editor]);
 
   /**
    * Toggles VFX difficulty level on selected paragraphs
-   * Ensures proper class combinations and maintains existing VFX tags
-   * 
    * @param {string} level - VFX difficulty level to toggle
    */
   const toggleVfx = useCallback((level) => {
-    updateParagraphClasses(classes => {
-      const nonVfxClasses = classes.filter(cls => !VFX_TAGS.includes(cls));
-      return classes.includes(level) ? nonVfxClasses : [...nonVfxClasses, 'vfx', level];
-    });
-  }, [updateParagraphClasses]);
+    safeExecute(() => {
+      updateParagraphClasses(classes => {
+        const nonVfxClasses = classes.filter(cls => !VFX_TAGS.includes(cls));
+        return classes.includes(level) ? nonVfxClasses : [...nonVfxClasses, 'vfx', level];
+      });
+    }, 'toggleVfx');
+  }, [updateParagraphClasses, safeExecute]);
 
   /**
    * Toggles paragraph formatting classes with smart scene numbering
-   * For scene headings, automatically assigns appropriate scene numbers
-   * considering document structure and existing numbering
-   * 
    * @param {string} className - Formatting class to toggle
    */
   const toggleParagraphClass = useCallback((className) => {
-    updateParagraphClasses(classes => {
-      const vfxClasses = classes.filter(cls => VFX_TAGS.includes(cls));
-      const newClasses = [className, ...vfxClasses];
-      
-      // Only handle scene numbers for scene headings
-      if (className === 'scene-heading') {
-        const { from } = editor.state.selection;
-        let prevSceneNumber = null;
+    safeExecute(() => {
+      updateParagraphClasses(classes => {
+        const vfxClasses = classes.filter(cls => VFX_TAGS.includes(cls));
+        const newClasses = [className, ...vfxClasses];
         
-        // Find the previous scene heading's number
-        editor.state.doc.nodesBetween(0, from, (node) => {
-          if (node.type.name === 'paragraph' && 
-              node.attrs.class?.includes('scene-heading') && 
-              node.attrs['data-scene-number']) {
-            prevSceneNumber = node.attrs['data-scene-number'];
-          }
-        });
-  
-        // If no previous scene, start with 1
-        if (!prevSceneNumber) {
-          const nextSceneNumber = findNextAvailableSceneNumber(from, "1");
+        if (className === 'scene-heading') {
+          const { from } = editor.state.selection;
+          let prevSceneNumber = null;
+          
+          editor.state.doc.nodesBetween(0, from, (node) => {
+            if (node.type.name === 'paragraph' && 
+                node.attrs.class?.includes('scene-heading') && 
+                node.attrs['data-scene-number']) {
+              prevSceneNumber = node.attrs['data-scene-number'];
+            }
+          });
+    
+          const nextSceneNumber = !prevSceneNumber 
+            ? sceneNumberUtils.findNextAvailable(from, "1")
+            : (() => {
+                const currentBase = String(prevSceneNumber).match(/\d+/)[0];
+                const nextBase = String(Number(currentBase) + 1);
+                let next = sceneNumberUtils.findNextAvailable(from, nextBase);
+                
+                if (next.includes('A')) {
+                  next = sceneNumberUtils.findNextAvailable(from, prevSceneNumber + 'A');
+                }
+                return next;
+              })();
+          
           editor.chain().focus()
             .updateAttributes('paragraph', {
               'data-scene-number': nextSceneNumber,
@@ -267,77 +290,72 @@ export function useEditorOperations(editor) {
               class: newClasses.join(' ')
             })
             .run();
-          return newClasses;
-        }
-  
-        // Try to insert between scenes if possible
-        const currentBase = String(prevSceneNumber).match(/\d+/)[0];
-        const nextBase = String(Number(currentBase) + 1);
-        
-        // First try the next number
-        let nextSceneNumber = findNextAvailableSceneNumber(from, nextBase);
-        
-        // If that's taken, try adding a letter to the current number
-        if (nextSceneNumber.includes('A')) {
-          nextSceneNumber = findNextAvailableSceneNumber(from, prevSceneNumber + 'A');
         }
         
-        editor.chain().focus()
-          .updateAttributes('paragraph', {
-            'data-scene-number': nextSceneNumber,
-            'data-collapsed': 'false',
-            class: newClasses.join(' ')
-          })
-          .run();
-          
         return newClasses;
-      }
-      
-      return newClasses;
-    });
-  }, [editor, updateParagraphClasses, generateNextSceneNumber, findNextAvailableSceneNumber]);
+      });
+    }, 'toggleParagraphClass');
+  }, [editor, updateParagraphClasses, sceneNumberUtils, safeExecute]);
 
+  /**
+   * Toggles highlight mark with specified class
+   * @param {string} className - Class name for highlight
+   */
   const toggleHighlight = useCallback((className) => {
-    editor.chain().focus().toggleHighlight({ class: className }).run();
-  }, [editor]);
+    safeExecute(() => {
+      editor.chain().focus().toggleHighlight({ class: className }).run();
+    }, 'toggleHighlight');
+  }, [editor, safeExecute]);
 
+  /**
+   * Toggles note mark
+   */
   const toggleNote = useCallback(() => {
-    editor.chain().focus().toggleMark('note').run()
-  }, [editor]);
+    safeExecute(() => {
+      editor.chain().focus().toggleMark('note').run();
+    }, 'toggleNote');
+  }, [editor, safeExecute]);
 
   /**
    * Updates VFX shot numbers throughout the document
    * Numbers only the first paragraph of each VFX block sequentially
-   * Subsequent paragraphs in the same block get null shot numbers
    */
   const updateVfxShotNumber = useCallback(() => {
-    if (!editor) return;
-
-    let shotNumber = 1;
-    let inVfxBlock = false;
-    editor.view.state.doc.descendants((node, pos) => {
-      if (node.type.name === 'paragraph') {
-        const isVfx = node.attrs.class && node.attrs.class.includes('vfx');
-        if (isVfx && !inVfxBlock) {
-          editor.chain().focus().setNodeSelection(pos)
-            .updateAttributes('paragraph', {'data-shot-number': shotNumber}).run();
-          shotNumber++;
-          inVfxBlock = true;
-        } else if (isVfx) {
-          // set shot number in subsequent lines of a vfx block to nil
-          editor.chain().focus().setNodeSelection(pos)
-            .updateAttributes('paragraph', {'data-shot-number': null}).run();
-        } else {
-          // not a vfx shot
-          editor.chain().focus().setNodeSelection(pos)
-            .updateAttributes('paragraph', {'data-shot-number': null}).run();
-          inVfxBlock = false;
+    safeExecute(() => {
+      let shotNumber = 1;
+      let inVfxBlock = false;
+      
+      editor.view.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'paragraph') {
+          const isVfx = node.attrs.class?.includes('vfx');
+          const shotNumberAttr = { 'data-shot-number': isVfx && !inVfxBlock ? shotNumber : null };
+          
+          editor.chain()
+            .focus()
+            .setNodeSelection(pos)
+            .updateAttributes('paragraph', shotNumberAttr)
+            .run();
+          
+          if (isVfx && !inVfxBlock) {
+            shotNumber++;
+            inVfxBlock = true;
+          } else if (!isVfx) {
+            inVfxBlock = false;
+          }
         }
-      }
-    });
-  }, [editor]);
+      });
+    }, 'updateVfxShotNumber');
+  }, [editor, safeExecute]);
 
-  return { initializeScenes, toggleScene, toggleAllScenes, toggleVfx, 
-           isClassActive, toggleParagraphClass, toggleHighlight, toggleNote,
-           updateVfxShotNumber };
+  return {
+    initializeScenes,
+    toggleScene,
+    toggleAllScenes,
+    toggleVfx,
+    isClassActive,
+    toggleParagraphClass,
+    toggleHighlight,
+    toggleNote,
+    updateVfxShotNumber
+  };
 }

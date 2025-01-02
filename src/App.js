@@ -8,58 +8,81 @@ import { HelpOverlay, HelpButton } from './components/HelpOverlay';
 import { ToastContainer, toast } from 'react-toastify';
 import log from 'electron-log/renderer';
 import 'react-toastify/dist/ReactToastify.css';
-import { SearchBox } from './components/SearchBox';
+import SearchBox from './components/SearchBox';
 import Analytics from './services/analytics';
 import "./App.css";
+import './BubbleMenu.css';
+import './HelpOverlay.css';  
+
+
+
+// Toast configuration presets for consistent notification styling
+const TOAST_CONFIG = {
+  position: "bottom-right",
+  hideProgressBar: false,
+  closeOnClick: true,
+  pauseOnHover: true,
+  draggable: true
+};
 
 /**
  * BreakdownEditor Component
- * Provides the main editor interface with bubble menu controls for formatting text
- * and managing VFX shots. Includes functionality for scene collapsing and note creation.
+ * Rich text editor interface for script analysis with formatting controls and VFX management
+ * Features:
+ * - Bubble menu for text formatting
+ * - Scene collapsing/expanding
+ * - VFX shot management
+ * - Note creation interface
  * 
- * @param {Object} editor - TipTap editor instance
- * @param {Function} updateVfxShotNumber - Callback to update VFX shot numbering
+ * @param {Object} props
+ * @param {Object} props.editor - TipTap editor instance
+ * @param {Function} props.updateVfxShotNumber - Callback to update VFX shot numbering
  */
-function BreakdownEditor({ editor, updateVfxShotNumber}) {
-  const { toggleScene, toggleAllScenes, toggleVfx, isClassActive, toggleParagraphClass, toggleHighlight, toggleNote } = useEditorOperations(editor);
+function BreakdownEditor({ editor, updateVfxShotNumber }) {
+  const { 
+    toggleScene, 
+    toggleAllScenes, 
+    toggleVfx, 
+    isClassActive, 
+    toggleParagraphClass, 
+    toggleHighlight, 
+    toggleNote 
+  } = useEditorOperations(editor);
 
-  // Dynamically inject CSS styles for VFX difficulty levels
-  // Creates color-coded backgrounds and hover states for VFX buttons
+  // Dynamic VFX difficulty level styles
   useEffect(() => {
     const styleElement = document.createElement('style');
     const vfxStyles = EDITOR_CONFIG.vfx.difficultyLevels
-        .map(level => `
-            .bubble-btn.${level.id} { background-color: ${level.color}; }
-            .bubble-btn.${level.id}:hover { filter: brightness(150%); opacity: 0.9; }
-            .bubble-btn.${level.id}.is-active { filter: brightness(120%); opacity: 1; }
-            .bubble-btn.${level.id}.is-active:hover { filter: brightness(180%); opacity: 1; }
-            p.${level.id} { background-color: ${level.color}20; }
-        `).join('\n');
+      .map(level => `
+        .bubble-btn.${level.id} { background-color: ${level.color}; }
+        .bubble-btn.${level.id}:hover { filter: brightness(150%); opacity: 0.9; }
+        .bubble-btn.${level.id}.is-active { filter: brightness(120%); opacity: 1; }
+        .bubble-btn.${level.id}.is-active:hover { filter: brightness(180%); opacity: 1; }
+        /* VFX paragraph styles */
+        p.${level.id} {  background-color: transparent; }
+        p.${level.id}::before { 
+          content: ' ';  
+          position: absolute;
+          left: 3em;     
+          width: 48em;
+          text-align: left;
+          line-height: inherit; 
+          background-color: ${level.color}20; 
+          z-index: -1;
+        }
+      `).join('\n'); // p.${level.id} { background-color: ${level.color}20; }
     
     styleElement.textContent = vfxStyles;
     document.head.appendChild(styleElement);
 
-    // Store reference to the style element
-    const currentStyle = styleElement;
-
-    return () => {
-        if (document.head.contains(currentStyle)) {
-            document.head.removeChild(currentStyle);
-        }
-    };
+    return () => document.head.contains(styleElement) && document.head.removeChild(styleElement);
   }, []);
 
-  /**
-   * Scene Collapse/Expand Handler
-   * Manages collapsible scenes in the editor:
-   * - Single click on caret: toggles individual scene
-   * - Shift + click: toggles all scenes to match target state
-   */
+  // Scene collapse/expand handler
   useEffect(() => { 
     if (!editor?.view) return;
 
     const handleSceneClick = (e) => {
-      // Check if we clicked on the caret element
       const caretElement = e.target.closest('.scene-heading-caret');
       if (!caretElement) return;
       
@@ -72,28 +95,16 @@ function BreakdownEditor({ editor, updateVfxShotNumber}) {
       const sceneId = sceneHeading.getAttribute('data-scene-number');
       const isCollapsed = sceneHeading.getAttribute('data-collapsed') === 'true';
       
-      if (e.shiftKey) {
-        toggleAllScenes(!isCollapsed);
-      } else {
-        toggleScene(sceneId, !isCollapsed);
-      }
+      e.shiftKey ? toggleAllScenes(!isCollapsed) : toggleScene(sceneId, !isCollapsed);
     };
     
     editor.view.dom.addEventListener('click', handleSceneClick);
-    return () => {
-      if (editor?.view?.dom) {
-        editor.view.dom.removeEventListener('click', handleSceneClick);
-      }
-    };
-  }, [editor]);
+    return () => editor?.view?.dom?.removeEventListener('click', handleSceneClick);
+  }, [editor, toggleScene, toggleAllScenes]);
 
-  // State and handlers for note creation interface
+  // Note creation interface state and handlers
   const [hoverLine, setHoverLine] = useState(null);
 
-  /**
-   * Tracks mouse position over the note creation area
-   * Updates hover indicator to match the paragraph being hovered
-   */
   const handleNoteAreaMouseMove = useCallback((e) => {
     if (!editor?.state?.doc) return;
 
@@ -103,37 +114,34 @@ function BreakdownEditor({ editor, updateVfxShotNumber}) {
     const rect = scriptContainer.getBoundingClientRect();
     const y = e.clientY - rect.top + scriptContainer.scrollTop;
 
-    // Find the paragraph at this vertical position
+    // Find paragraph at cursor position
     editor.state.doc.descendants((node, pos) => {
-        if (node.type.name === 'paragraph') {
-            const dom = editor.view?.nodeDOM(pos);
-            if (!dom) return;
+      if (node.type.name === 'paragraph') {
+        const dom = editor.view?.nodeDOM(pos);
+        if (!dom) return;
 
-            const domRect = dom.getBoundingClientRect();
-            if (domRect.top <= e.clientY && e.clientY <= domRect.bottom) {
-                setHoverLine({
-                    top: domRect.top - rect.top + scriptContainer.scrollTop,
-                    height: domRect.height
-                });
-                return false;
-            }
+        const domRect = dom.getBoundingClientRect();
+        if (domRect.top <= e.clientY && e.clientY <= domRect.bottom) {
+          setHoverLine({
+            top: domRect.top - rect.top + scriptContainer.scrollTop,
+            height: domRect.height
+          });
+          return false;
         }
+      }
     });
   }, [editor]);
 
-  const handleNoteAreaMouseLeave = useCallback(() => {
-    setHoverLine(null);
-  }, []);
+  const handleNoteAreaMouseLeave = useCallback(() => setHoverLine(null), []);
 
   const handleNoteAreaClick = useCallback((e) => {
     if (!editor?.view) return;
     
-    // Get click coordinates relative to script container
     const scriptContainer = e.currentTarget.parentElement;
     const rect = scriptContainer.getBoundingClientRect();
     const y = e.clientY - rect.top + scriptContainer.scrollTop;
 
-    // Find the paragraph at this vertical position
+    // Find target paragraph
     let targetNode = null;
     let targetPos = 0;
 
@@ -166,69 +174,121 @@ function BreakdownEditor({ editor, updateVfxShotNumber}) {
   }, [editor]);
 
   return (
-      <>
-          {editor && (
-              <>
-                <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
-                    <div className="bubble-menu">
-                        <div className="bubble-menu-column">
-                            <BubbleMenuButton onClick={() => toggleParagraphClass('character')} isActive={isClassActive('character')} type="scene">character</BubbleMenuButton>
-                            <BubbleMenuButton onClick={() => toggleParagraphClass('dialogue')} isActive={isClassActive('dialogue')} type="scene">dialogue</BubbleMenuButton>
-                            <BubbleMenuButton onClick={() => toggleParagraphClass('action')} isActive={isClassActive('action')} type="scene">action</BubbleMenuButton>
-                            <BubbleMenuButton onClick={() => toggleParagraphClass('scene-heading')} isActive={isClassActive('scene-heading')} type="scene">scene</BubbleMenuButton>
-                        </div>
-                        <div className="bubble-menu-column">
-                            <BubbleMenuButton onClick={() => toggleHighlight('char')} isActive={editor.isActive('highlight', { class: 'char' })} type="char">char</BubbleMenuButton>
-                            <BubbleMenuButton onClick={() => toggleHighlight('prop')} isActive={editor.isActive('highlight', { class: 'prop' })} type="prop">prop</BubbleMenuButton>
-                            <BubbleMenuButton onClick={() => toggleHighlight('env')} isActive={editor.isActive('highlight', { class: 'env' })} type="env">env</BubbleMenuButton>
-                            <BubbleMenuButton onClick={toggleNote} isActive={false} type="note">note</BubbleMenuButton>
-                        </div>
-                        <VfxButtons toggleVfx={toggleVfx} isClassActive={isClassActive} />
-                    </div>
-                </BubbleMenu>
-                <div className="editor-wrapper">
-                  <div className="script-container">
-                    <EditorContent editor={editor} />
-                    <div 
-                      className="note-creation-area" 
-                      onClick={handleNoteAreaClick}
-                      onMouseMove={handleNoteAreaMouseMove}
-                      onMouseLeave={handleNoteAreaMouseLeave}
-                    />
-                    {hoverLine && (
-                      <div 
-                        className="note-hover-line visible"
-                        style={{
-                          top: hoverLine.top,
-                          height: hoverLine.height
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              </>
-          )}
-      </>
+    <>
+      {editor && (
+        <>
+          <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
+            <div className="bubble-menu">
+              <div className="bubble-menu-column">
+                <BubbleMenuButton 
+                  onClick={() => toggleParagraphClass('character')} 
+                  isActive={isClassActive('character')} 
+                  type="scene"
+                >
+                  character
+                </BubbleMenuButton>
+                <BubbleMenuButton 
+                  onClick={() => toggleParagraphClass('dialogue')} 
+                  isActive={isClassActive('dialogue')} 
+                  type="scene"
+                >
+                  dialogue
+                </BubbleMenuButton>
+                <BubbleMenuButton 
+                  onClick={() => toggleParagraphClass('action')} 
+                  isActive={isClassActive('action')} 
+                  type="scene"
+                >
+                  action
+                </BubbleMenuButton>
+                <BubbleMenuButton 
+                  onClick={() => toggleParagraphClass('scene-heading')} 
+                  isActive={isClassActive('scene-heading')} 
+                  type="scene"
+                >
+                  scene
+                </BubbleMenuButton>
+              </div>
+              <div className="bubble-menu-column">
+                <BubbleMenuButton 
+                  onClick={() => toggleHighlight('char')} 
+                  isActive={editor.isActive('highlight', { class: 'char' })} 
+                  type="char"
+                >
+                  char
+                </BubbleMenuButton>
+                <BubbleMenuButton 
+                  onClick={() => toggleHighlight('prop')} 
+                  isActive={editor.isActive('highlight', { class: 'prop' })} 
+                  type="prop"
+                >
+                  prop
+                </BubbleMenuButton>
+                <BubbleMenuButton 
+                  onClick={() => toggleHighlight('env')} 
+                  isActive={editor.isActive('highlight', { class: 'env' })} 
+                  type="env"
+                >
+                  env
+                </BubbleMenuButton>
+                <BubbleMenuButton 
+                  onClick={toggleNote} 
+                  isActive={false} 
+                  type="note"
+                >
+                  note
+                </BubbleMenuButton>
+              </div>
+              <VfxButtons toggleVfx={toggleVfx} isClassActive={isClassActive} />
+            </div>
+          </BubbleMenu>
+          <div className="editor-wrapper">
+            <div className="script-container">
+              <EditorContent editor={editor} />
+              <div 
+                className="note-creation-area" 
+                onClick={handleNoteAreaClick}
+                onMouseMove={handleNoteAreaMouseMove}
+                onMouseLeave={handleNoteAreaMouseLeave}
+              />
+              {hoverLine && (
+                <div 
+                  className="note-hover-line visible"
+                  style={{
+                    top: hoverLine.top,
+                    height: hoverLine.height
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
 /**
  * Main Application Component
- * Manages the editor state, file operations, and IPC communication with Electron.
- * Handles auto-saving, file loading/saving, and user notifications.
+ * Manages the editor state and coordinates all app functionality:
+ * - File operations (open/save/auto-save)
+ * - IPC communication with Electron
+ * - Scene management
+ * - Analytics tracking
+ * - User notifications
+ * - Search functionality
  */
 function App() {
   const { ipcRenderer } = window.require('electron');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
-  const [currentFileName, setcurrentFileName] = useState(null);
+  const [currentFileName, setCurrentFileName] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
+  // Search shortcut handler (Cmd/Ctrl + F)
   const handleKeyDown = useCallback((e) => {
-    if (e.metaKey || e.ctrlKey) {
-      if (e.key === 'f') {
-        e.preventDefault();
-        setIsSearchOpen(true);
-      }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault();
+      setIsSearchOpen(true);
     }
   }, []);
 
@@ -237,67 +297,73 @@ function App() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  // Initialize logger
+  useEffect(() => {
+    ipcRenderer.on('configure-logger', (_, config) => {
+      log.transports.file.level = config.isDev ? 'debug' : 'info';
+      log.transports.console.level = config.isDev ? 'debug' : 'info';
+      log.transports.file.resolvePathFn = () => config.logPath;
+      log.initialize();
+    });
+
+    return () => {
+      ipcRenderer.removeListener('configure-logger', () => {});
+    };
+  }, []);
+
+  // Initialize editor
   const editor = useEditor({
     extensions,
     content: EDITOR_CONFIG.defaultContent,
     editable: true,
-    onUpdate: ({ editor }) => {
-      window.editor = editor;
-    },
   });
 
   const { initializeScenes, updateVfxShotNumber } = useEditorOperations(editor);
 
-  // Update document title when filename changes
+  // Update document title
   useEffect(() => {
     document.title = currentFileName ? `Breakdown - ${currentFileName}` : 'Breakdown';
   }, [currentFileName]);
 
-  // Initialize analytics
+  // Initialize analytics if API key is available
   useEffect(() => {
     Analytics.init();
     
-    // Identify user
-    ipcRenderer.invoke('get-user-id').then(userId => {
-      Analytics.identify(userId);
-      Analytics.track('app_launched');
-    });
+    if (Analytics.isEnabled) {
+      ipcRenderer.invoke('get-user-id')
+        .then(userId => {
+          Analytics.identify(userId);
+          Analytics.track('app_launched');
+        })
+        .catch(error => {
+          log.error('Failed to get user ID:', error);
+        });
+    }
   }, []);
 
-  /**
-   * Main Effect Hook
-   * Sets up IPC communication channels and editor initialization
-   * Manages:
-   * - File operations (open/save)
-   * - Content auto-saving
-   * - Toast notifications
-   * - Scene initialization
-   * - Editor content updates
-   */
+  // Main effect for IPC communication and editor setup
   useEffect(() => {
     if (!editor) return;
 
-    let isInitializing = false; // Flag to prevent duplicate initializations
+    let isInitializing = false;
+    let initializeTimeout = null;
 
-    /**
-     * Safely initialize scenes with debouncing
-     * Prevents multiple simultaneous initialization attempts
-     */
+    // Debounced scene initialization
     const safeInitializeScenes = () => {
       if (isInitializing) return;
       isInitializing = true;
-      setTimeout(() => {
+      
+      clearTimeout(initializeTimeout);
+      initializeTimeout = setTimeout(() => {
         initializeScenes();
         isInitializing = false;
-      }, 0);
+      }, 300);
     };
 
     // IPC Event Handlers
     const handlers = {
-      // Menu command responses
       'menu-open-file': () => {
         log.info('Renderer: Received menu-open-file');
-        // Call back to main process
         ipcRenderer.invoke('handle-file-open', false);
       },
       'menu-open-ocr': () => {
@@ -309,65 +375,50 @@ function App() {
         ipcRenderer.invoke('handle-file-save', currentFileName);
       },
       'get-editor-content': () => {
-        const content = editor.getHTML();
-        ipcRenderer.send('editor-content', content);
+        ipcRenderer.send('editor-content', editor.getHTML());
       },
       'set-editor-content': (_, content) => {
         editor.commands.setContent(content);
         safeInitializeScenes();
       },
       'set-file-name': (_, fileName) => {
-        setcurrentFileName(fileName);
+        setCurrentFileName(fileName);
       },
       'menu-find': () => {
         setIsSearchOpen(true);
       },
       'update-shot-number': updateVfxShotNumber,
       'update-toast': (_, toastId, message) => {
-          toast.update(toastId, {
-              render: message,
-              type: 'info'
-          });
+        toast.update(toastId, {
+          render: message,
+          type: 'info',
+          ...TOAST_CONFIG
+        });
       },
       'dismiss-toast': (_, toastId) => {
-          toast.dismiss(toastId);
+        toast.dismiss(toastId);
       },
       'show-info': (_, message, options = {}) => {
-          toast.info(message, {
-              position: "bottom-right",
-              autoClose: options.autoClose ?? 3000,
-              hideProgressBar: false,
-              closeOnClick: true,
-              pauseOnHover: true,
-              draggable: true,
-              progress: undefined,
-              toastId: options.toastId,
-              // If autoClose is false, make it persistent
-              ...(options.autoClose === false && {
-                  closeButton: false,
-                  closeOnClick: false,
-              })
-          });
+        toast.info(message, {
+          ...TOAST_CONFIG,
+          autoClose: options.autoClose ?? 3000,
+          toastId: options.toastId,
+          ...(options.autoClose === false && {
+            closeButton: false,
+            closeOnClick: false,
+          })
+        });
       },
-      // Notifications
       'show-error': (_, message) => {
         toast.error(message, {
-          position: "bottom-right",
-          autoClose: 3000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true
+          ...TOAST_CONFIG,
+          autoClose: 3000
         });
       },
       'show-success': (_, message) => {
         toast.success(message, {
-          position: "bottom-right",
-          autoClose: 2000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true
+          ...TOAST_CONFIG,
+          autoClose: 2000
         });
       }
     };
@@ -377,7 +428,7 @@ function App() {
       ipcRenderer.on(event, handler);
     });
 
-    // Initial content load
+    // Load initial content
     ipcRenderer.invoke('load-content')
       .then(content => {
         if (content) editor.commands.setContent(content);
@@ -388,29 +439,22 @@ function App() {
         toast.error('Failed to load saved content');
       });
 
-    // Auto-save timer
+    // Auto-save timer (every 30 seconds)
     const saveTimer = setInterval(() => {
-      const content = editor.getHTML();
-      ipcRenderer.invoke('save-content', { content })
+      ipcRenderer.invoke('save-content', { content: editor.getHTML() })
         .catch(err => {
-          console.error('Error auto-saving content:', err);
+          log.error('Error auto-saving content:', err);
           toast.error('Failed to auto-save content');
         });
     }, 30000);
 
-    /**
-     * Content change handler
-     * Reinitializes scenes only on structural document changes
-     * to prevent unnecessary processing
-     */
+    // Content change handler
     const handleUpdate = ({ transaction }) => {
-      // Only reinitialize if there are doc changes that affect structure
-      if (transaction.docChanged && (
-        transaction.steps.some(step => 
-          step.jsonID === 'replace' || 
-          step.jsonID === 'replaceAround'
-        )
-      )) {
+      if (transaction.docChanged && 
+          transaction.steps.some(step => 
+            step.jsonID === 'replace' || 
+            step.jsonID === 'replaceAround'
+          )) {
         safeInitializeScenes();
       }
     };
@@ -423,15 +467,16 @@ function App() {
         ipcRenderer.removeListener(event, handlers[event]);
       });
       clearInterval(saveTimer);
+      clearTimeout(initializeTimeout);
       if (editor) editor.destroy();
     };
-  }, [editor, updateVfxShotNumber, initializeScenes, ipcRenderer, currentFileName]);
+  }, [editor, updateVfxShotNumber, initializeScenes, currentFileName]);
 
   if (!editor) return null;
 
   return (
     <div className="App">
-      <BreakdownEditor editor={editor} updateVfxShotNumber={updateVfxShotNumber}/>
+      <BreakdownEditor editor={editor} updateVfxShotNumber={updateVfxShotNumber} />
       <HelpButton onClick={() => setIsHelpOpen(true)} />
       <HelpOverlay isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
       {isSearchOpen && (
@@ -440,7 +485,7 @@ function App() {
           onClose={() => setIsSearchOpen(false)}
         />
       )}
-      <ToastContainer /> 
+      <ToastContainer />
     </div>
   );
 }

@@ -11,9 +11,13 @@ const log = require('electron-log');
 const { setupIPC } = require('./ipc.js');
 const { createMenu } = require('./menu.js');
 
-// Configure logging based on environment
+// Configure logging for both main and renderer processes
+log.initialize({ preload: true });
 log.transports.file.level = isDev ? 'debug' : 'info';
 log.transports.console.level = isDev ? 'debug' : 'info';
+
+// Configure main process logging
+log.transports.file.resolvePathFn = () => path.join(app.getPath('userData'), 'logs/main.log');
 
 // Ensure consistent app name across platforms
 app.name = 'Breakdown';
@@ -57,6 +61,14 @@ async function createWindow() {
         const menu = createMenu(mainWindow);
         Menu.setApplicationMenu(menu);
         cleanupIPC = setupIPC(mainWindow);
+
+        // Configure renderer process logging
+        mainWindow.webContents.on('did-finish-load', () => {
+            mainWindow.webContents.send('configure-logger', {
+                isDev,
+                logPath: path.join(app.getPath('userData'), 'logs/renderer.log')
+            });
+        });
 
         // Prevent dangling references
         mainWindow.on('closed', () => {

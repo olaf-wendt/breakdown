@@ -53,7 +53,7 @@ export function HelpOverlay({ isOpen, onClose }) {
         </section>
         <section className="help-content-script">
             <div className="help-content-script-container">
-                <div className="tiptap ProseMirror" translate="no" contentEditable="false" role="textbox">
+                <div className="tiptap ProseMirror" translate="no" role="textbox">
                     <p className="scene-heading" data-scene-number="1" data-collapsed="false">
                         <span className="scene-heading-caret"></span>
                         <span className="scene-heading-content">INT. DEEP MIND FACILITY - PERPETUAL TWILIGHT</span>

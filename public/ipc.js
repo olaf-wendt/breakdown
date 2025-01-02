@@ -7,10 +7,12 @@ const { ipcMain, dialog, app } = require('electron');
 const log = require('electron-log');
 const path = require('path');
 const { promises: fs } = require('fs');
-const { parseScript, tokensToHtml, htmlToTokens } = require('../src/main/utils/parser.js');
+const { parseScript } = require('../src/main/utils/parser.js');
+const { tokensToHtml, htmlToTokens } = require('../src/main/utils/htmlConverter.js');
 const { readPdf, backgroundOcrTask, readScript } = require('../src/main/utils/readpdf.js');
 const { writeScriptCsv, writeScenesCsv, writeTokens, writeHtml, writeScriptRaw } = require('../src/main/utils/savescript.js');
 const { EDITOR_CONFIG } = require('../src/config.main.js');
+const { v4: uuidv4 } = require('uuid');
 
 /**
  * Sets up IPC handlers for the main window
@@ -20,8 +22,39 @@ const { EDITOR_CONFIG } = require('../src/config.main.js');
  * @returns {Function} Cleanup function to remove all handlers
  */
 function setupIPC(mainWindow) {
-    // Tracks current file for save operations
+    // Track file state
     let currentFileName = null;
+    let lastUsedDirectory = app.getPath('documents'); // Default to documents
+
+    /**
+     * Gets or creates a unique user ID for analytics
+     * Persists ID in user data directory
+     * 
+     * @returns {Promise<string>} User ID
+     */
+    const handleGetUserId = async () => {
+        try {
+            const userIdPath = path.join(app.getPath('userData'), 'user-id.txt');
+            
+            try {
+                // Try to read existing user ID
+                const userId = await fs.readFile(userIdPath, 'utf8');
+                return userId.trim();
+            } catch (err) {
+                if (err.code === 'ENOENT') {
+                    // Generate and save new user ID if none exists
+                    const newUserId = uuidv4();
+                    await fs.writeFile(userIdPath, newUserId);
+                    return newUserId;
+                }
+                throw err;
+            }
+        } catch (error) {
+            log.error('Error getting user ID:', error);
+            // Return a temporary ID if we can't persist it
+            return `temp-${uuidv4()}`;
+        }
+    };
 
     /**
      * Handles file opening with optional OCR processing
@@ -34,12 +67,17 @@ function setupIPC(mainWindow) {
         log.debug('IPC: Handling menu-open-file');
         try {
             // Configure dialog filters based on OCR mode
-            const { filePaths } = await dialog.showOpenDialog({
+            const { filePaths, canceled } = await dialog.showOpenDialog({
+                defaultPath: lastUsedDirectory,
                 properties: ['openFile'],
-                filters: useOCR 
+                filters: useOCR
                     ? [{ name: 'PDF Files', extensions: ['pdf'] }]
                     : [{ name: 'Script Files', extensions: ['txt', 'html', 'fountain'] }]
             });
+
+            if (!canceled && filePaths?.length) {
+                lastUsedDirectory = path.dirname(filePaths[0]);
+            }
 
             if (!filePaths?.length) return;
 
@@ -128,7 +166,7 @@ function setupIPC(mainWindow) {
 
             // Get save location from user
             const { filePath, canceled } = await dialog.showSaveDialog({
-                defaultPath: path.join(app.getPath('documents'), currentFileName || 'script'),
+                defaultPath: path.join(lastUsedDirectory, currentFileName || 'script'),
                 filters: [
                     { name: 'Text Files', extensions: ['txt'] },
                     { name: 'CSV Files', extensions: ['csv'] },
@@ -138,6 +176,9 @@ function setupIPC(mainWindow) {
             });
     
             if (canceled || !filePath) return;
+            
+            // Update last used directory
+            lastUsedDirectory = path.dirname(filePath);
     
             // Convert and save based on chosen format
             const fileExt = path.extname(filePath).toLowerCase();
@@ -147,7 +188,7 @@ function setupIPC(mainWindow) {
             
             switch (fileExt) {
                 case '.txt':
-                    await writeTokens(tokens, entities, filePath, false);
+                    await writeTokens(tokens, entities, filePath, { clean: false });
                     break;
                 case '.csv':
                 case '.xlsx':
@@ -230,6 +271,7 @@ function setupIPC(mainWindow) {
     const invokeHandlers = {
         'handle-file-open': (_, useOCR) => handleFileOpen(useOCR),
         'handle-file-save': () => handleFileSave(),
+        'get-user-id': handleGetUserId
     };
 
     const fileHandlers = {
